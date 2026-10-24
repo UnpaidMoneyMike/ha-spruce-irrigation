@@ -20,18 +20,20 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 | | Entities and features |
 |---|---|
 | **Control** | A water **valve** per zone (open = run for the zone's run time, close = stop); a **run time** setting per zone; **Run schedule** buttons; **Stop watering**; **Hibernate** switch (winter mode); **Pair moisture sensor** (lets a reset sensor join) |
+| **Schedules** | Per schedule (except the manual one): **enabled** switch, **start time**, **rain / freeze / wind skip** switches and the **rain skip threshold**; the controller's **freeze skip temperature**. Changes are saved in Spruce and sent to the controller, as the Spruce app does |
 | **Live status** (every minute) | Status (idle, watering, paused, pump delay, cycle and soak, hibernating, offline), active zone, watering ends, watering, online, last seen |
 | **Water** | Water today and this month (controller and per zone), usable in the Energy dashboard; per-zone last measured flow, usual flow and last run |
 | **Flow faults** | Per-zone *flow fault* when a run measures far less than the zone's usual flow (failed meter, closed valve, broken pipe); a **Repairs** notice when several zones show it |
 | **Moisture sensors** | A device per sensor: moisture, temperature, battery voltage, Zigbee signal, last reading; unavailable when a sensor has gone quiet for 2 days |
-| **History** | Spruce's water history (litres and minutes per zone per day, back to when the controller was added) imported into long-term statistics `spruce_irrigation:<controller>_zone_<n>_water` / `_minutes` and a controller total |
+| **History** | Spruce's water history (litres and minutes per zone per day, back to when the controller was added) imported into long-term statistics `spruce_irrigation:<controller>_zone_<n>_water` / `_minutes`, the same split per schedule (`..._zone_<n>_schedule_<id>_water` / `_minutes`), and a controller total |
 | **Events** | `spruce_irrigation_event` fired for each new Spruce activity-log entry (zone finished with gallons and gpm, flow alerts, schedule skips…) for automations |
 
 ### Services
 
 `spruce_irrigation.run_zone` (valve target, minutes), `stop_zone`, `run_all_zones` (minutes),
 `run_schedule` / `stop_schedule` (schedule name as in the Spruce app), `stop`, `set_hibernate`,
-`pair_sensor`, `import_history` (re-import water statistics from a date).
+`pair_sensor`, `import_history` (re-import water statistics from a date), `set_schedule_zone` (a zone's
+watering % and whether it is included, in a schedule).
 
 ## Install
 
@@ -40,11 +42,13 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 
 **Manually:** copy `custom_components/spruce_irrigation` into your `config/custom_components/` and restart.
 
-Then Settings → Devices & services → Add integration → **Spruce Irrigation**, and enter your API key.
+Then Settings → Devices & services → Add integration → **Spruce Irrigation**, and either **sign in with your
+Spruce account** (the integration fetches the API key; your password is used once and not stored) or paste
+an API key. **Reconfigure** on the integration does the same later.
 
 ### Getting the API key
 
-Spruce doesn't show it in the app yet. Either ask Spruce support for an account API token, or: sign in at
+Only needed if you don't use *sign in*. Spruce doesn't show it in the app yet. Either ask Spruce support for an account API token, or: sign in at
 [app.spruceirrigation.com](https://app.spruceirrigation.com), open the browser's developer tools (F12) →
 **Network**, click any request to `api.spruceirrigation.com` and copy the value of its **Authorization**
 request header. The key gives full access to your Spruce account; Home Assistant stores it in its config
