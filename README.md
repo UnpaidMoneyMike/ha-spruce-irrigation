@@ -1,5 +1,13 @@
 # Spruce Irrigation for Home Assistant
 
+> [!WARNING]
+> **Unofficial — use at your own risk.** This is a personal, community project. It is **not** made, endorsed,
+> supported or affiliated with Plaid Systems or Spruce Irrigation; "Spruce" and related names belong to their
+> owners. It uses the same undocumented cloud endpoints as the Spruce web app, which may change or stop working
+> at any time. This integration can turn water on and off: you are responsible for how you use it and for any
+> water use, damage, bills or other consequences. Provided "as is", without warranty of any kind and with no
+> liability, as set out in the [MIT licence](LICENSE).
+
 A Home Assistant integration for **Spruce** smart irrigation controllers (Plaid Systems, Gen2 Wi-Fi, e.g.
 PS-SPRWIFI16-01): control every zone, see what is watering, how much water each zone uses, what the flow
 meter measured, and the wireless soil moisture sensors, with full water history in long-term statistics.
@@ -52,7 +60,7 @@ the flow-fault threshold (default: a run under 20% of the zone's usual flow).
 - Water figures are what the Spruce flow meter counted. If the meter model is set wrong in the Spruce app
   (Device Settings → flow meter), every figure is off by the same factor.
 - Spruce answers slowly at times (HTTP 504); requests are retried and the activity log is optional.
-- Not affiliated with Plaid Systems. Uses the same cloud endpoints as the Spruce web app.
+- Not affiliated with Plaid Systems; see the disclaimer at the top.
 
 ## Development
 
