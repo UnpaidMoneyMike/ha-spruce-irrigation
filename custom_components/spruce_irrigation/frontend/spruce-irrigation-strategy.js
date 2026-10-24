@@ -257,9 +257,21 @@ class SpruceIrrigationDashboardStrategy extends HTMLElement {
   }
 }
 
-if (!customElements.get("ll-strategy-dashboard-spruce-irrigation")) {
-  customElements.define("ll-strategy-dashboard-spruce-irrigation", SpruceIrrigationDashboardStrategy);
-}
+// Some other add-ons replace the page's custom element registry while the page loads, dropping elements
+// defined before them; check again for a while and define the strategy again if it went missing.
+const TAG = "ll-strategy-dashboard-spruce-irrigation";
+const register = () => {
+  if (!customElements.get(TAG)) {
+    try {
+      customElements.define(TAG, class extends SpruceIrrigationDashboardStrategy {});
+    } catch (err) {
+      // already defined under this name
+    }
+  }
+};
+register();
+for (const ms of [0, 50, 200, 500, 1000, 2000, 3000, 4000, 6000, 10000]) setTimeout(register, ms);
+window.addEventListener("load", register);
 
 window.customStrategies = window.customStrategies || [];
 if (!window.customStrategies.some((s) => s.type === "spruce-irrigation")) {
