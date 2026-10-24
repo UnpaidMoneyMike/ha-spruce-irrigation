@@ -36,7 +36,7 @@ Every screen answers one of these, in this order of importance:
 
 ## 3. Views
 
-Five views plus a settings sub-view. Wireframes are for phone width.
+Five views plus two sub-views (baseline history, settings). Wireframes are for phone width.
 
 ### 3.1 Today
 
@@ -153,11 +153,31 @@ Data: rain, temperature, water per zone (have); cost (new); ET demand (new, `cha
 └─────────────────────────────────────┘
 ```
 
-### 3.6 Settings (sub-view, admin only)
+### 3.6 Baseline history (sub-view of Health)
 
-Controller (max manual time, pump delay, concurrent zones, zone enabled), Weather (rain / freeze / wind
-thresholds, climate adjust by month), Flow meter (limits, stop on deviation, pump protect, leak detection),
-Sensors (thresholds, polling, learn mode), Notifications. Reached from a gear badge on Today.
+Spruce keeps only the latest flow baseline (`current_baseline`). The integration saves every baseline it sees
+(id, time, how it was started, per-zone flow) in its own storage, so the user can see how each zone changed:
+
+- **Baselines list** — newest first, with date, trigger and zone count; the current one marked.
+- **Before and after** — pick two baselines; per zone: before, after, change %. Changes over 20 % highlighted,
+  a fall to zero flagged "No flow".
+- **One zone over time** — the baseline as a step line with the flow measured on each run (`gpm_data`) as a
+  dashed line, so drift and faults show between baselines.
+- A *Run a new baseline* button. A new baseline also raises a short notification with the biggest changes.
+
+The first baseline seen after install is recorded as it is; older ones can be added with a service
+(`spruce_irrigation.record_baseline`, values per zone) when the user has them on paper.
+
+### 3.7 Settings (sub-view, admin only)
+
+- **Units** — Metric (default for new installs), US, or Custom per quantity: water volume (L / kL or gal), flow
+  (L/min or gal/min), rain (mm or in), temperature (°C or °F), wind (km/h or mph), soil water / root depth (mm or
+  in). Spruce stores US units; the integration converts every sensor, number and chart. Kept in the config
+  entry's options (also editable from *Configure*), so it applies to entities, not only the dashboard.
+- **Water price** — price per kL (or per gallon) or an entity holding the tariff; currency from Home Assistant.
+- Controller (max manual time, pump delay, concurrent zones, zone enabled), Weather Watch (rain / freeze / wind
+  thresholds, climate adjust by month), Flow meter (limits, stop on deviation, pump protect, leak detection),
+  Moisture sensors (thresholds, polling, learn mode), Notifications. Reached from the gear on Today.
 
 ## 4. New data the dashboard needs
 
@@ -175,13 +195,16 @@ Sensors (thresholds, polling, learn mode), Notifications. Reached from a gear ba
 | Schedule details | selects / numbers / times (mode, days, window, per-zone settings) | 0.8 |
 | ET demand vs applied | statistics from `chart_data` | 0.10 |
 | Repeaters / outlets | switch + online / last seen / signal | 0.6 |
+| Baseline history | stored snapshots per baseline + per-zone baseline statistics; `record_baseline` service | 0.7 |
+| Unit system | option: metric (default) / US / custom per quantity; entities convert | 0.6 |
+| Water price | option: price per kL or tariff entity | 0.6 |
 
 ## 5. Build order
 
 | Step | Ships with | Dashboard work |
 |---|---|---|
 | D1 | now (no new entities) | Restructure into Today / Zones / Plan / Water / Health; hero card; KPIs from statistics; fold unused zones, schedules and dead sensors; plan strip from the calendar; consistent icons and colours; phone layout pass |
-| D2 | 0.6–0.7 | Alerts strip; quick "skip 24 h"; Health: flow meter, baseline table, live flow, mesh and repeaters; settings sub-view |
+| D2 | 0.6–0.7 | Alerts strip; quick "skip 24 h"; Health: flow meter, baseline table, live flow, mesh and repeaters; baseline history; settings sub-view with units and water price |
 | D3 | 0.8–0.9 | Zones as places with water budget and next run; schedule editor sections; cost KPIs |
 | D4 | 0.10 | ET demand vs applied; moisture vs watering charts per place; optional ApexCharts combined chart |
 | D5 | 1.0 | Polish: translations, empty states ("No sensors — add one in Spruce"), screenshots for the README, a YAML copy for people who want to edit it |

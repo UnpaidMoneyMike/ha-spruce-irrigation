@@ -48,6 +48,17 @@ Grouped as the app groups them. *Entity* = a Home Assistant entity; *service* = 
 - Flow meter **model / k / offset** as diagnostics, with a Repairs issue when the offset is outside 0–2 (the app's
   own validation).
 
+- **Baseline history**: Spruce keeps only the latest baseline, so store a snapshot (id, time, per-zone gpm)
+  each time `current_baseline` changes; per-zone *baseline flow* statistics so the history graphs; a
+  `record_baseline` service to add older baselines by hand; a notification with the biggest changes when a new
+  baseline lands.
+
+### Units and price
+- **Unit system** option: Metric (default for new installs), US, or Custom per quantity (volume, flow, rain,
+  temperature, wind, soil water). Spruce stores US units; every sensor, number, statistic and chart converts.
+  Replaces today's "follow Home Assistant" behaviour for the rain threshold.
+- **Water price** option (per kL / per gallon, or a tariff entity) for cost sensors.
+
 ### Zones and zone groups ("Places")
 - Zone characteristics as config selects: **landscape, nozzle, soil, sun, slope**; **gpm** (number); custom ET
   coefficients (service).
@@ -122,8 +133,8 @@ out of scope for this integration until proven; tracked separately.
 
 | Release | Scope |
 |---|---|
-| 0.6 | §1 fixes; controller settings (max manual time, pump delay, concurrent zones, zone enabled); wind threshold; flow meter switches and limits; outlet switches + repeater health |
-| 0.7 | Flow baseline button + baseline sensors; live flow sensor; Repairs for leaks / calibration / no-flow zones / stale baseline |
+| 0.6 | §1 fixes; unit system and water price options; controller settings (max manual time, pump delay, concurrent zones, zone enabled); wind threshold; flow meter switches and limits; outlet switches + repeater health |
+| 0.7 | Flow baseline button + baseline sensors + baseline history; live flow sensor; Repairs for leaks / calibration / no-flow zones / stale baseline |
 | 0.8 | Schedules: create / delete, start mode + offset, days, watering window, per-zone mode / cycles / weekly limits; manual and basic schedule editing services |
 | 0.9 | Plan detail: per-zone reasons and water budget; projections; past day detail; sensor settings (threshold, polling, learn mode) |
 | 0.10 | Charts: `chart_data` / `sensor_data` statistics and Place-style dashboard; climate adjust; weather entity |
