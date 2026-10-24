@@ -53,6 +53,26 @@ Grouped as the app groups them. *Entity* = a Home Assistant entity; *service* = 
   `record_baseline` service to add older baselines by hand; a notification with the biggest changes when a new
   baseline lands.
 
+### Zone specs, head library and baseline review
+A baseline taken while something is wrong (a leak, a missing nozzle, clogged drip) becomes "normal". A design
+flow worked out from the installed heads is a reference a leak can't move.
+
+- **Head library**: built-in models (common rotators, sprays, rotors, drip emitters and drip line, with the
+  makers' published flow per arc / nozzle at a stated pressure) plus **custom models** the user adds — brand,
+  model, type (spray-rotator per arc / rotor per nozzle / emitter L/h / drip line L/h per m), flow values,
+  pressure, optional radius. Built-in entries can be copied and edited. Create, edit and delete are each one
+  short form: custom models are **config subentries** ("Add head model" on the integration page, Reconfigure,
+  Delete); a model in use can be edited (zones update) but not deleted until removed from its zones.
+- **Zone specs**: per zone (or zone group) a list of *quantity × model × arc*; add / edit / delete / "copy to
+  another zone". Gives **design flow** (and precipitation rate, which can be sent to Spruce's zone settings).
+  Stored as a subentry per zone; also a service (`set_zone_heads`) for scripts.
+- **Flow check** per zone: design vs baseline vs last run, with a plain verdict.
+- **Baseline review**: when a new baseline lands, zones more than ~25 % (option) from design, or from the
+  previous accepted baseline when no specs exist, are marked **Needs review** with the likely cause. Spruce
+  applies its baseline anyway; the integration keeps comparing those zones against the previous **accepted**
+  baseline until the user taps *Accept* or *Keep previous* (Repairs issue + buttons). Accept / keep is
+  recorded in the baseline history.
+
 ### Units and price
 - **Unit system** option: Metric (default for new installs), US, or Custom per quantity (volume, flow, rain,
   temperature, wind, soil water). Spruce stores US units; every sensor, number, statistic and chart converts.
@@ -134,7 +154,7 @@ out of scope for this integration until proven; tracked separately.
 | Release | Scope |
 |---|---|
 | 0.6 | §1 fixes; unit system and water price options; controller settings (max manual time, pump delay, concurrent zones, zone enabled); wind threshold; flow meter switches and limits; outlet switches + repeater health |
-| 0.7 | Flow baseline button + baseline sensors + baseline history; live flow sensor; Repairs for leaks / calibration / no-flow zones / stale baseline |
+| 0.7 | Flow baseline button + baseline sensors + baseline history; head library, zone specs, design flow and baseline review; live flow sensor; Repairs for leaks / calibration / no-flow zones / stale baseline |
 | 0.8 | Schedules: create / delete, start mode + offset, days, watering window, per-zone mode / cycles / weekly limits; manual and basic schedule editing services |
 | 0.9 | Plan detail: per-zone reasons and water budget; projections; past day detail; sensor settings (threshold, polling, learn mode) |
 | 0.10 | Charts: `chart_data` / `sensor_data` statistics and Place-style dashboard; climate adjust; weather entity |

@@ -36,7 +36,7 @@ Every screen answers one of these, in this order of importance:
 
 ## 3. Views
 
-Five views plus two sub-views (baseline history, settings). Wireframes are for phone width.
+Five views plus sub-views (baseline history, zone specs, head library, settings). Wireframes are for phone width.
 
 ### 3.1 Today
 
@@ -168,7 +168,22 @@ Spruce keeps only the latest flow baseline (`current_baseline`). The integration
 The first baseline seen after install is recorded as it is; older ones can be added with a service
 (`spruce_irrigation.record_baseline`, values per zone) when the user has them on paper.
 
-### 3.7 Settings (sub-view, admin only)
+### 3.7 Zone specs and head library (sub-views of Zones)
+
+- **Zone specs** — opened from "Head specs and design flow" on a zone card. *Flow check*: design (from the
+  heads) vs baseline vs last run, with a verdict ("+5 % from design — normal" or "check for a leak or missing
+  nozzle"), and the precipitation rate the heads give. *Installed heads*: rows of quantity × model × arc with
+  edit and delete buttons, "+ Add heads" (a short sheet: model, arc, how many, showing the flow it adds), and
+  "Copy to…" another zone.
+- **Head library** — search; *My models* (custom brand / model / type / flow per arc / pressure / radius, with
+  edit and delete; a model in use can't be deleted until removed from its zones); *Built in* (each with "Copy &
+  edit").
+- **Baseline review** — on Baseline history: a "Needs review" card listing zones far from design with the likely
+  cause, and *Keep previous* / *Accept*.
+
+Real forms are Home Assistant's own dialogs (config subentries and services), so no custom card is needed.
+
+### 3.8 Settings (sub-view, admin only)
 
 - **Units** — Metric (default for new installs), US, or Custom per quantity: water volume (L / kL or gal), flow
   (L/min or gal/min), rain (mm or in), temperature (°C or °F), wind (km/h or mph), soil water / root depth (mm or
@@ -195,6 +210,7 @@ The first baseline seen after install is recorded as it is; older ones can be ad
 | Schedule details | selects / numbers / times (mode, days, window, per-zone settings) | 0.8 |
 | ET demand vs applied | statistics from `chart_data` | 0.10 |
 | Repeaters / outlets | switch + online / last seen / signal | 0.6 |
+| Head library, zone specs, design flow, baseline review | config subentries (head models, zone heads); design-flow sensor per zone; review Repairs + accept / keep buttons | 0.7 |
 | Baseline history | stored snapshots per baseline + per-zone baseline statistics; `record_baseline` service | 0.7 |
 | Unit system | option: metric (default) / US / custom per quantity; entities convert | 0.6 |
 | Water price | option: price per kL or tariff entity | 0.6 |
@@ -204,7 +220,7 @@ The first baseline seen after install is recorded as it is; older ones can be ad
 | Step | Ships with | Dashboard work |
 |---|---|---|
 | D1 | now (no new entities) | Restructure into Today / Zones / Plan / Water / Health; hero card; KPIs from statistics; fold unused zones, schedules and dead sensors; plan strip from the calendar; consistent icons and colours; phone layout pass |
-| D2 | 0.6–0.7 | Alerts strip; quick "skip 24 h"; Health: flow meter, baseline table, live flow, mesh and repeaters; baseline history; settings sub-view with units and water price |
+| D2 | 0.6–0.7 | Alerts strip; quick "skip 24 h"; Health: flow meter, baseline table, live flow, mesh and repeaters; baseline history and review; zone specs and head library; settings sub-view with units and water price |
 | D3 | 0.8–0.9 | Zones as places with water budget and next run; schedule editor sections; cost KPIs |
 | D4 | 0.10 | ET demand vs applied; moisture vs watering charts per place; optional ApexCharts combined chart |
 | D5 | 1.0 | Polish: translations, empty states ("No sensors — add one in Spruce"), screenshots for the README, a YAML copy for people who want to edit it |
