@@ -89,6 +89,23 @@ const waterChart = (title, entities, period, days, chart = "bar") => ({
   chart_type: chart, hide_legend: entities.length < 2, grid_options: { columns: "full" },
 });
 
+/** The next watering as a date and time (a tile would say "in 2 weeks"), with today's plan. */
+function planCard(c) {
+  const next = c.entities.next_watering, today = c.entities.watering_today;
+  if (!next) return null;
+  const when = "%a %-d %b, %-I:%M %p";
+  return {
+    type: "markdown", grid_options: { columns: "full" },
+    content: `{% set n = '${next}' %}{% set t = states(n) %}`
+      + "{% if t in ['unknown', 'unavailable'] %}**Next watering:** none planned in Spruce's forecast"
+      + "{% else %}{% set a = states[n].attributes %}"
+      + `**Next watering:** {{ as_timestamp(t) | timestamp_custom('${when}') }}`
+      + " to {{ as_timestamp(a.ends) | timestamp_custom('%-I:%M %p') }}, {{ a.minutes }} min ({{ a.schedule }})"
+      + "{% endif %}"
+      + (today ? `\n\n**Today:** {{ state_translated('${today}') }}` : ""),
+  };
+}
+
 function zoneNames(hass, c) {
   const names = {};
   for (const z of byNumber(c.zones)) names[z] = shortName(hass, c.zones[z].valve, c.name, `Zone ${z}`);
@@ -111,7 +128,7 @@ function overviewView(hass, c, zones, schedules) {
     section([
       heading("Controller", "mdi:sprinkler-variant"),
       tile(e.status), tile(e.active_zone), tile(e.watering_ends), tile(e.online),
-      tile(e.next_watering, { state_content: ["state", "schedule", "minutes"] }), tile(e.watering_today),
+      planCard(c),
       tile(e.water_today), tile(e.water_month),
       tile(e.hibernate), press(e.stop),
     ]),
@@ -171,8 +188,10 @@ function zonesView(c, zones) {
   };
 }
 
-function schedulesView(c, zones, schedules) {
-  const sections = Object.keys(c.schedules).filter((sid) => c.schedules[sid].enabled).map((sid) => {
+function schedulesView(hass, c, zones, schedules) {
+  const all = Object.keys(c.schedules).filter((sid) => c.schedules[sid].enabled);
+  const off = all.filter((sid) => hass.states[c.schedules[sid].enabled]?.state === "off");
+  const sections = all.filter((sid) => !off.includes(sid)).map((sid) => {
     const e = c.schedules[sid];
     const series = (c.stats.schedules[sid] || []).sort((a, b) => a.zone - b.zone)
       .map((s) => ({ entity: s.id, name: zones[s.zone] || `Zone ${s.zone}` }));
@@ -191,9 +210,18 @@ function schedulesView(c, zones, schedules) {
   if (c.entities.plan) {
     sections.unshift(section([
       heading("Watering plan", "mdi:calendar-month"),
-      tile(c.entities.next_watering, { state_content: ["state", "schedule", "minutes"] }), tile(c.entities.watering_today),
-      { type: "calendar", entities: [c.entities.plan], initial_view: "listWeek", grid_options: { columns: "full" } },
+      planCard(c),
+      { type: "calendar", entities: [c.entities.plan], initial_view: "dayGridMonth", grid_options: { columns: "full" } },
     ], 2));
+  }
+  if (off.length) {   // turned off: just the switch to turn it back on and a run button (refresh after changing)
+    sections.push(section([
+      heading("Turned off", "mdi:calendar-remove"),
+      ...off.flatMap((sid) => [
+        tile(c.schedules[sid].enabled, { name: schedules[sid], state_content: ["state", "watering_days"] }),
+        press(c.schedules[sid].run, `Run ${schedules[sid]} now?`),
+      ]),
+    ]));
   }
   const other = Object.keys(c.stats.schedules).filter((sid) => !c.schedules[sid]?.enabled);
   if (other.length) {
@@ -254,7 +282,7 @@ class SpruceIrrigationDashboardStrategy extends HTMLElement {
       naming = { hass, device: c.name };
       const zones = zoneNames(hass, c);
       const schedules = scheduleNames(hass, c);
-      const own = [overviewView(hass, c, zones, schedules), zonesView(c, zones), schedulesView(c, zones, schedules),
+      const own = [overviewView(hass, c, zones, schedules), zonesView(c, zones), schedulesView(hass, c, zones, schedules),
         historyView(c, zones), diagnosticsView(c)];
       if (controllers.length > 1) {
         for (const v of own) { v.title = `${c.name} ${v.title}`; v.path = `${v.path}-${i + 1}`; }
