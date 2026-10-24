@@ -135,6 +135,13 @@ class SpruceApi:
                                    {"deviceid": controller, "start_date": start.isoformat(), "end_date": end.isoformat()})
         return _columns_to_rows(data, ("ymd", "zone", "schedule_id", "schedule", "schedule_type", "minutes", "gallons"))
 
+    async def weather_history(self, controller: str, start: date, end: date) -> list[dict]:
+        """The weather Spruce recorded at the controller's location, per day: ymd, precip_in, temp_min, temp_max (°F).
+        A day can appear twice and some days are missing."""
+        data = await self._request("GET", "app/api/weather_history",
+                                   {"deviceid": controller, "start_date": start.isoformat(), "end_date": end.isoformat()})
+        return _columns_to_rows(data, ("ymd", "precip_in", "temp_min", "temp_max"))
+
     async def gpm_data(self, controller: str, start: date, end: date) -> list[dict]:
         """Measured flow of each zone run: DTepoch (run start), zone, gpm (0 if the meter counted nothing)."""
         data = await self._request("GET", "app/api/gpm_data",

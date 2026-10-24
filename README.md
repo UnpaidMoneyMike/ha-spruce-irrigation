@@ -27,6 +27,7 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 | **Flow faults** | Per-zone *flow fault* when a run measures far less than the zone's usual flow (failed meter, closed valve, broken pipe); a **Repairs** notice when several zones show it |
 | **Moisture sensors** | A device per sensor: moisture, temperature, battery voltage, Zigbee signal, last reading; unavailable when a sensor has gone quiet for 2 days |
 | **History** | Spruce's water history (litres and minutes per zone per day, back to when the controller was added) imported into long-term statistics `spruce_irrigation:<controller>_zone_<n>_water` / `_minutes`, the same split per schedule (`..._zone_<n>_schedule_<id>_water` / `_minutes`), and a controller total |
+| **Weather** | Spruce's recorded weather at the controller's location (Apple WeatherKit) imported alongside: daily rain `spruce_irrigation:<controller>_rain` (mm) and the day's low/high temperature `..._temperature` (°C, min/max). The dashboard's History page charts rain against water per zone, as the Spruce app's weather chart does |
 | **Events** | `spruce_irrigation_event` fired for each new Spruce activity-log entry (zone finished with gallons and gpm, flow alerts, schedule skips…) for automations |
 | **Names** | Names come from the Spruce app. Rename a zone, schedule, sensor or the controller there (or add one) and the integration reloads itself within 15 minutes to pick it up; entity ids stay the same. Names you set in Home Assistant are kept |
 

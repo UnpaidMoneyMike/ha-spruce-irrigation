@@ -2,7 +2,9 @@
 
 Spruce keeps water used per zone per schedule per day (as the flow meter counted it) back to when the controller
 was added. Each zone gets two external statistics, litres and minutes run, and so does each zone within each
-schedule that has watered it (zone_<n>_schedule_<id>_...); plus a controller total. Each day's value is placed at
+schedule that has watered it (zone_<n>_schedule_<id>_...); plus a controller total. Spruce's weather at the
+controller's location goes in alongside, so it can be charted with the watering: rain (mm per day, `_rain`) and the
+day's low and high temperature (°C, `_temperature`, min/max/mean). Each day's value is placed at
 the start of that local day. Usable in the Energy dashboard (water) and in statistics graphs, and read
 back by anything that pulls Home Assistant statistics.
 """
@@ -17,10 +19,12 @@ from homeassistant.components.recorder.statistics import async_add_external_stat
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .api import SpruceError
 from .const import DOMAIN, HISTORY_DAYS, LITRES_PER_GALLON
 
 _LOGGER = logging.getLogger(__name__)
 FIRST_DAY = date(2015, 1, 1)
+MM_PER_INCH = 25.4
 
 
 def statistic_id(controller: str, zone: int | None, kind: str, schedule: int | None = None) -> str:
@@ -94,6 +98,58 @@ async def _import(hass: HomeAssistant, entry, start: date, end: date) -> None:
                 source=DOMAIN, statistic_id=sid, unit_class=unit_class, unit_of_measurement=unit)
             async_add_external_statistics(hass, meta, points)
     _LOGGER.debug("Spruce statistics imported %s to %s (%d rows)", start, end, len(rows))
+    try:
+        await _import_weather(hass, entry, start, end)
+    except SpruceError as err:   # the weather is extra: the water statistics are in already
+        _LOGGER.debug("Spruce weather history not imported this time: %s", err)
+
+
+async def _import_weather(hass: HomeAssistant, entry, start: date, end: date) -> None:
+    rt = entry.runtime_data
+    rows = []
+    chunk = start
+    while chunk <= end:
+        upto = min(chunk + timedelta(days=365), end + timedelta(days=1))
+        rows += await rt.api.weather_history(rt.controller, chunk, upto)
+        chunk = upto + timedelta(days=1)
+    days: dict[date, dict] = {}   # a day listed twice keeps its last entry
+    for r in rows:
+        try:
+            day = date.fromisoformat(str(r["ymd"]))
+        except (KeyError, ValueError):
+            continue
+        if start <= day <= end:
+            days[day] = r
+    if not days:
+        return
+    name = rt.history.data.name
+
+    rain_id = statistic_id(rt.controller, None, "rain")
+    total = await _sum_before(hass, rain_id, dt_util.start_of_local_day(start))
+    points = []
+    day = start
+    while day <= max(days):
+        mm = round(float(days.get(day, {}).get("precip_in") or 0) * MM_PER_INCH, 1)
+        total += mm
+        points.append(StatisticData(start=dt_util.start_of_local_day(day), state=mm, sum=round(total, 1)))
+        day += timedelta(days=1)
+    async_add_external_statistics(hass, StatisticMetaData(
+        mean_type=StatisticMeanType.NONE, has_sum=True, name=f"{name} rain", source=DOMAIN, statistic_id=rain_id,
+        unit_class="distance", unit_of_measurement="mm"), points)
+
+    to_c = lambda f: round((float(f) - 32) * 5 / 9, 1)
+    temps = []
+    for day, r in sorted(days.items()):
+        if r.get("temp_min") is None or r.get("temp_max") is None:
+            continue
+        low, high = to_c(r["temp_min"]), to_c(r["temp_max"])
+        temps.append(StatisticData(start=dt_util.start_of_local_day(day), min=low, max=high,
+                                   mean=round((low + high) / 2, 1)))
+    if temps:
+        async_add_external_statistics(hass, StatisticMetaData(
+            mean_type=StatisticMeanType.ARITHMETIC, has_sum=False, name=f"{name} temperature", source=DOMAIN,
+            statistic_id=statistic_id(rt.controller, None, "temperature"), unit_class="temperature",
+            unit_of_measurement="°C"), temps)
 
 
 async def _sum_before(hass: HomeAssistant, sid: str, before: datetime) -> float:

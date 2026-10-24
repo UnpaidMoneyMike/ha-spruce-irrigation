@@ -1,15 +1,21 @@
 """Set-up, entities, control and services against the fake account."""
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.recorder.common import async_wait_recording_done
 
 from custom_components.spruce_irrigation.const import CONF_API_KEY, CONF_CONTROLLER, DOMAIN
+from custom_components.spruce_irrigation.statistics import statistic_id
 
 from .conftest import CONTROLLER
 
@@ -103,6 +109,15 @@ async def test_services(hass: HomeAssistant, entry, mock_api) -> None:
     mock_api.stop.assert_awaited()
     await hass.services.async_call("switch", "turn_on", {"entity_id": _entity(hass, "hibernate")}, blocking=True)
     mock_api.hibernate.assert_awaited_with(CONTROLLER, True)
+
+
+async def test_weather_statistics(hass: HomeAssistant, entry) -> None:
+    rain, temp = statistic_id(CONTROLLER, None, "rain"), statistic_id(CONTROLLER, None, "temperature")
+    start = dt_util.start_of_local_day(dt_util.now().date()) - timedelta(days=1)
+    stats = await get_instance(hass).async_add_executor_job(
+        statistics_during_period, hass, start, None, {rain, temp}, "hour", None, {"state", "sum", "min", "max"})
+    assert [(r["state"], r["sum"]) for r in stats[rain]] == [(2.5, 2.5), (5.1, 7.6)]   # mm; today's later entry
+    assert (stats[temp][0]["min"], stats[temp][0]["max"]) == (10.0, 30.0)               # °F -> °C
 
 
 async def test_watering_plan(hass: HomeAssistant, entry) -> None:

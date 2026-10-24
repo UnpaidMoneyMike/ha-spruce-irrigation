@@ -78,6 +78,11 @@ def fake_api() -> AsyncMock:
         + [{"DTepoch": epoch - 3600, "zone": 1, "gpm": 0.0}]                 # latest run of zone 1: no flow
         + [{"DTepoch": epoch - 86400, "zone": 2, "gpm": 2.0}]
     )
+    api.weather_history.return_value = [   # yesterday, and today listed twice
+        {"ymd": (today - timedelta(days=1)).isoformat(), "precip_in": 0.1, "temp_min": 50, "temp_max": 86},
+        {"ymd": today.isoformat(), "precip_in": 0.1, "temp_min": 59, "temp_max": 77},
+        {"ymd": today.isoformat(), "precip_in": 0.2, "temp_min": 59, "temp_max": 77},
+    ]
     api.events.return_value = []
     return api
 

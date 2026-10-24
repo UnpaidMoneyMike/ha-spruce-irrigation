@@ -17,7 +17,7 @@ async function collect(hass) {
   if (!ids.length) return [];
   const [entries, stats] = await Promise.all([
     hass.callWS({ type: "config/entity_registry/get_entries", entity_ids: ids }),
-    hass.callWS({ type: "recorder/list_statistic_ids", statistic_type: "sum" }).catch(() => []),
+    hass.callWS({ type: "recorder/list_statistic_ids" }).catch(() => []),
   ]);
   const byUnique = {};
   for (const [entityId, entry] of Object.entries(entries)) {
@@ -44,13 +44,15 @@ async function collect(hass) {
 
     const short = ctrl.toLowerCase().replace(/[^a-z0-9]/g, "").slice(-8);
     const prefix = `${DOMAIN}:${short}_`;
-    c.stats = { total: null, zones: {}, zoneMinutes: {}, schedules: {} };
+    c.stats = { total: null, rain: null, temperature: null, zones: {}, zoneMinutes: {}, schedules: {} };
     for (const s of stats) {
       const id = s.statistic_id;
       if (!id.startsWith(prefix)) continue;
       const rest = id.slice(prefix.length);
       let m;
       if (rest === "water") c.stats.total = id;
+      else if (rest === "rain") c.stats.rain = id;
+      else if (rest === "temperature") c.stats.temperature = id;
       else if ((m = rest.match(/^zone_(\d+)_schedule_(\d+)_water$/))) (c.stats.schedules[m[2]] ??= []).push({ zone: m[1], id });
       else if ((m = rest.match(/^zone_(\d+)_water$/))) c.stats.zones[m[1]] = id;
       else if ((m = rest.match(/^zone_(\d+)_minutes$/))) c.stats.zoneMinutes[m[1]] = id;
@@ -152,7 +154,8 @@ function overviewView(hass, c, zones, schedules) {
   }
   if (c.stats.total) {
     sections.push(section([heading("Water used", "mdi:water"),
-      waterChart("Last 30 days", [{ entity: c.stats.total, name: "Water" }], "day", 30)], 2));
+      waterChart("Last 30 days", [{ entity: c.stats.total, name: "Water" },
+        ...(c.stats.rain ? [{ entity: c.stats.rain, name: "Rain" }] : [])], "day", 30)], 2));
   }
   const unavailable = ["unavailable", "unknown", undefined];
   const sensors = Object.values(c.sensors).filter((s) => !unavailable.includes(hass.states[s.moisture]?.state));
@@ -242,6 +245,17 @@ function historyView(c, zones) {
   return {
     type: "sections", title: "History", path: "history", icon: "mdi:chart-bar", max_columns: 4,
     sections: [
+      c.stats.rain ? section([heading("Rain and watering", "mdi:weather-pouring"),
+        waterChart("Rain and water by zone per day, last 30 days",
+          [{ entity: c.stats.rain, name: "Rain" }, ...zoneSeries(c.stats.zones)], "day", 30),
+        c.stats.temperature ? {
+          type: "statistics-graph", title: "Temperature, last 30 days", period: "day", days_to_show: 30,
+          entities: [{ entity: c.stats.temperature, name: "Temperature" }], stat_types: ["min", "max"],
+          chart_type: "line", grid_options: { columns: "full" },
+        } : null,
+        c.stats.total ? waterChart("Rain and water per month, last 12 months",
+          [{ entity: c.stats.rain, name: "Rain" }, { entity: c.stats.total, name: "Water" }], "month", 365) : null,
+      ], 4) : null,
       c.stats.total ? section([heading("Total water", "mdi:water"),
         waterChart("Per month, last 2 years", [{ entity: c.stats.total, name: "Water" }], "month", 730)], 4) : null,
       section([heading("Water by zone", "mdi:sprinkler"),
