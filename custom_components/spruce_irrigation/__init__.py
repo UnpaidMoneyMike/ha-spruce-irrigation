@@ -212,7 +212,30 @@ async def _async_register_dashboard(hass: HomeAssistant) -> None:
     version = (await async_get_integration(hass, DOMAIN)).version
     await hass.http.async_register_static_paths(
         [StaticPathConfig(STRATEGY_URL, str(Path(__file__).parent / "frontend" / STRATEGY_FILE), True)])
-    add_extra_js_url(hass, f"{STRATEGY_URL}?v={version}")
+    url = f"{STRATEGY_URL}?v={version}"
+    add_extra_js_url(hass, url)   # for the Add dashboard dialog
+    await _async_register_resource(hass, url)
+
+
+async def _async_register_resource(hass: HomeAssistant, url: str) -> None:
+    """Also list the strategy as a dashboard resource (storage mode only). Dashboards load their resources each
+    time they open, so the dashboard works even in a browser or app still running the page from before the
+    integration was installed or updated, which doesn't load extra_js_url."""
+    try:
+        from homeassistant.components.lovelace.const import LOVELACE_DATA
+
+        lovelace = hass.data.get(LOVELACE_DATA)
+        if lovelace is None or lovelace.resource_mode != "storage":
+            return
+        resources = lovelace.resources
+        await resources.async_get_info()   # loads the stored resources
+        ours = [r for r in resources.async_items() if str(r.get("url", "")).split("?")[0] == STRATEGY_URL]
+        if not ours:
+            await resources.async_create_item({"res_type": "module", "url": url})
+        elif ours[0].get("url") != url:
+            await resources.async_update_item(ours[0]["id"], {"res_type": "module", "url": url})
+    except Exception:   # an internal Home Assistant API; the dashboard still loads through extra_js_url
+        _LOGGER.debug("Couldn't register the dashboard resource", exc_info=True)
 
 
 def _entry_for(hass: HomeAssistant, device_id: str | None) -> SpruceConfigEntry:
