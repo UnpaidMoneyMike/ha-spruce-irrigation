@@ -64,9 +64,9 @@ async def test_states(hass: HomeAssistant, entry) -> None:
 async def test_valve_control(hass: HomeAssistant, entry, mock_api) -> None:
     valve = _entity(hass, "zone_2_valve")
     await hass.services.async_call("valve", "open_valve", {"entity_id": valve}, blocking=True)
-    mock_api.zone_on.assert_awaited_with(CONTROLLER, 2, 600, 0)
+    mock_api.zone_on.assert_awaited_with(CONTROLLER, 2, 600)
     await hass.services.async_call(DOMAIN, "run_zone", {"entity_id": valve, "minutes": 3}, blocking=True)
-    mock_api.zone_on.assert_awaited_with(CONTROLLER, 2, 180, 0)
+    mock_api.zone_on.assert_awaited_with(CONTROLLER, 2, 180)
     await hass.services.async_call("valve", "close_valve", {"entity_id": valve}, blocking=True)
     mock_api.zone_off.assert_awaited_with(CONTROLLER, 2)
 
@@ -75,7 +75,7 @@ async def test_run_time_number(hass: HomeAssistant, entry, mock_api) -> None:
     await hass.services.async_call("number", "set_value", {"entity_id": _entity(hass, "zone_1_run_time"), "value": 7},
                                    blocking=True)
     await hass.services.async_call("valve", "open_valve", {"entity_id": _entity(hass, "zone_1_valve")}, blocking=True)
-    mock_api.zone_on.assert_awaited_with(CONTROLLER, 1, 420, 0)
+    mock_api.zone_on.assert_awaited_with(CONTROLLER, 1, 420)
 
 
 async def test_services(hass: HomeAssistant, entry, mock_api) -> None:
