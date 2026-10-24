@@ -105,6 +105,26 @@ async def test_services(hass: HomeAssistant, entry, mock_api) -> None:
     mock_api.hibernate.assert_awaited_with(CONTROLLER, True)
 
 
+async def test_rename_reloads(hass: HomeAssistant, entry, mock_api) -> None:
+    valve = _entity(hass, "zone_2_valve")
+    status = entry.runtime_data.status
+    await status.async_refresh()                   # nothing changed: no reload
+    assert entry.runtime_data.status is status
+    mock_api.sensor_status.return_value = {}       # a sensor missing from one read: no reload
+    await status.async_refresh()
+    await hass.async_block_till_done()
+    assert entry.runtime_data.status is status
+
+    mock_api.controller_settings.return_value["zone"]["2"]["zone_name"] = "Vegetables"
+    await entry.runtime_data.history.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await async_wait_recording_done(hass)
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.status is not status
+    assert _entity(hass, "zone_2_valve") == valve   # same entity, new name
+    assert "Vegetables" in hass.states.get(valve).attributes["friendly_name"]
+
+
 async def test_schedule_controls(hass: HomeAssistant, entry, mock_api) -> None:
     reg = er.async_get(hass)
     enabled = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_schedule_11_enabled")

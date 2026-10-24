@@ -115,10 +115,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> bo
         if history.last_update_success and entry.data.get(HISTORY_IMPORTED) == HISTORY_VERSION:
             entry.async_create_background_task(hass, async_update_recent_statistics(hass, entry), "spruce statistics")
     entry.async_on_unload(history.async_add_listener(_history_updated))
+
+    # Names (and zones, schedules and sensors) are fixed when the entities are made: reload when Spruce's change
+    layout = _layout(entry.runtime_data)
+
+    @callback
+    def _check_layout() -> None:
+        if history.last_update_success and status.last_update_success and _layout_changed(layout, _layout(entry.runtime_data)):
+            _LOGGER.info("Spruce names or zones changed; reloading %s", entry.title)
+            hass.config_entries.async_schedule_reload(entry.entry_id)
+    entry.async_on_unload(history.async_add_listener(_check_layout))
+    entry.async_on_unload(status.async_add_listener(_check_layout))
     if entry.data.get(HISTORY_IMPORTED) != HISTORY_VERSION:
         entry.async_create_background_task(hass, _first_import(hass, entry), "spruce history import")
     entry.async_on_unload(entry.add_update_listener(_options_updated))
     return True
+
+
+def _layout(rt: SpruceRuntime) -> tuple:
+    """What the entities and devices are built from: the controller's, zones', schedules' and sensors' names."""
+    h = rt.history.data
+    return (h.name,
+            {z.number: (z.name, z.enabled, z.sensor_id) for z in h.zones.values()},
+            {sid: (s["name"], s.get("type")) for sid, s in h.schedules.items()},
+            {sid: s.get("name") for sid, s in rt.status.data.sensors.items()})
+
+
+def _layout_changed(old: tuple, new: tuple) -> bool:
+    """A moisture sensor missing from one status read isn't a change (that would reload over and over)."""
+    sensors = {sid: name for sid, name in new[3].items() if sid not in old[3] or name != old[3][sid]}
+    return old[:3] != new[:3] or bool(sensors)
 
 
 async def _first_import(hass: HomeAssistant, entry: SpruceConfigEntry) -> None:
