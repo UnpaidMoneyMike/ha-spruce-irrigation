@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 import voluptuous as vol
 
@@ -15,6 +16,7 @@ from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
 from .api import SpruceApi, SpruceError
 from .const import (
@@ -29,6 +31,8 @@ from .const import (
     SERVICE_SET_SCHEDULE_ZONE,
     SERVICE_STOP,
     SERVICE_STOP_SCHEDULE,
+    STRATEGY_FILE,
+    STRATEGY_URL,
 )
 from .coordinator import SpruceHistoryCoordinator, SpruceStatusCoordinator
 from .statistics import async_import_history, async_update_recent_statistics
@@ -193,7 +197,22 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     for name, schema in SCHEMAS.items():
         hass.services.async_register(DOMAIN, name, handle, schema=schema)
+    await _async_register_dashboard(hass)
     return True
+
+
+async def _async_register_dashboard(hass: HomeAssistant) -> None:
+    """Serve the dashboard strategy and load it in the frontend, so "Spruce Irrigation" is offered under
+    Settings → Dashboards → Add dashboard → Community dashboards."""
+    if hass.http is None or "frontend" not in hass.config.components:
+        return
+    from homeassistant.components.frontend import add_extra_js_url
+    from homeassistant.components.http import StaticPathConfig
+
+    version = (await async_get_integration(hass, DOMAIN)).version
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(STRATEGY_URL, str(Path(__file__).parent / "frontend" / STRATEGY_FILE), True)])
+    add_extra_js_url(hass, f"{STRATEGY_URL}?v={version}")
 
 
 def _entry_for(hass: HomeAssistant, device_id: str | None) -> SpruceConfigEntry:

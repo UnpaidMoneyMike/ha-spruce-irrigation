@@ -36,3 +36,6 @@ SERVICE_HIBERNATE = "set_hibernate"
 SERVICE_PAIR_SENSOR = "pair_sensor"
 SERVICE_IMPORT_HISTORY = "import_history"
 SERVICE_SET_SCHEDULE_ZONE = "set_schedule_zone"
+
+STRATEGY_FILE = "spruce-irrigation-strategy.js"   # the dashboard, in frontend/
+STRATEGY_URL = f"/{DOMAIN}/{STRATEGY_FILE}"
