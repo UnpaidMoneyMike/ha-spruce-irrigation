@@ -71,8 +71,12 @@ function shortName(hass, entityId, deviceName, fallback) {
 }
 
 const byNumber = (obj) => Object.keys(obj).sort((a, b) => Number(a) - Number(b));
-const tile = (entity, extra = {}) => (entity ? { type: "tile", entity, ...extra } : null);
+let naming = null;   // {hass, device}: tiles are named without the controller's name in front
+const tile = (entity, extra = {}) => (entity ? {
+  type: "tile", entity, ...(naming ? { name: shortName(naming.hass, entity, naming.device, undefined) } : {}), ...extra,
+} : null);
 const press = (entity, confirmation) => tile(entity, {
+  hide_state: true,
   tap_action: { action: "perform-action", perform_action: "button.press", target: { entity_id: entity },
     ...(confirmation ? { confirmation: { text: confirmation } } : {}) },
   icon_tap_action: { action: "none" },
@@ -124,14 +128,15 @@ function overviewView(hass, c, zones, schedules) {
       ...watering.map((sid) => tile(c.schedules[sid].enabled, {
         name: schedules[sid], state_content: ["state", "start_time", "next_date"],
       })),
-      ...[...watering, ...runOnly].map((sid) => press(c.schedules[sid].run, `Run ${schedules[sid]} now?`)),
+      ...runOnly.map((sid) => press(c.schedules[sid].run, `Run ${schedules[sid]} now?`)),
     ]));
   }
   if (c.stats.total) {
     sections.push(section([heading("Water used", "mdi:water"),
       waterChart("Last 30 days", [{ entity: c.stats.total, name: "Water" }], "day", 30)], 2));
   }
-  const sensors = Object.values(c.sensors);
+  const unavailable = ["unavailable", "unknown", undefined];
+  const sensors = Object.values(c.sensors).filter((s) => !unavailable.includes(hass.states[s.moisture]?.state));
   if (sensors.length) {
     sections.push(section([heading("Moisture", "mdi:water-percent"),
       ...sensors.map((s) => tile(s.moisture, { name: s.name, state_content: ["state", "last_changed"] }))]));
@@ -236,6 +241,7 @@ class SpruceIrrigationDashboardStrategy extends HTMLElement {
     }
     const views = [];
     for (const [i, c] of controllers.entries()) {
+      naming = { hass, device: c.name };
       const zones = zoneNames(hass, c);
       const schedules = scheduleNames(hass, c);
       const own = [overviewView(hass, c, zones, schedules), zonesView(c, zones), schedulesView(c, zones, schedules),
@@ -245,6 +251,7 @@ class SpruceIrrigationDashboardStrategy extends HTMLElement {
       }
       views.push(...own);
     }
+    naming = null;
     return { title: config.title || "Irrigation", views };
   }
 }
