@@ -1,0 +1,262 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect your Spruce account",
+        "description": "Spruce controllers only talk to Spruce's cloud. Enter your account API key: in the Spruce web app (app.spruceirrigation.com) open the browser's developer tools (F12) → Network, click any request to api.spruceirrigation.com and copy the value of its Authorization header. Spruce support can also issue one.",
+        "data": {
+          "api_key": "API key"
+        },
+        "data_description": {
+          "api_key": "Gives full access to your Spruce account; Home Assistant stores it encrypted."
+        }
+      },
+      "controller": {
+        "title": "Choose a controller",
+        "data": {
+          "controller_id": "Controller"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Spruce API key needed",
+        "description": "Spruce no longer accepts the saved key (it changes if the account password changes). Enter the current key.",
+        "data": {
+          "api_key": "API key"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Spruce did not accept that key.",
+      "cannot_connect": "Couldn't reach Spruce's cloud. Try again shortly.",
+      "no_controllers": "That account has no controllers.",
+      "wrong_account": "That key is for a different Spruce account."
+    },
+    "abort": {
+      "already_configured": "This controller is already set up.",
+      "reauth_successful": "The new key works."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Spruce options",
+        "data": {
+          "default_run_minutes": "Default zone run time",
+          "status_interval": "Live status refresh",
+          "history_interval": "Water and flow history refresh",
+          "fault_share": "Flow fault threshold"
+        },
+        "data_description": {
+          "default_run_minutes": "Used when a zone valve is opened without a run time (each zone also has its own Run time setting).",
+          "status_interval": "How often to read which zones are running and the moisture sensors.",
+          "history_interval": "How often to read water used, measured flow, settings and the activity log.",
+          "fault_share": "A run measuring less than this share of the zone's usual flow is a flow fault (0.2 = 20%)."
+        }
+      }
+    }
+  },
+  "issues": {
+    "flow_meter_fault": {
+      "title": "Spruce flow meter may have failed",
+      "description": "The latest runs of {zones} measured almost no water flow. Usually the flow meter or its wiring has failed (or its model setting is wrong in the Spruce app), so water use is not being counted. Check the meter; this notice clears itself once runs measure flow again."
+    }
+  },
+  "entity": {
+    "valve": {
+      "zone": {
+        "name": "{zone}"
+      }
+    },
+    "number": {
+      "run_time": {
+        "name": "{zone} run time"
+      }
+    },
+    "switch": {
+      "hibernate": {
+        "name": "Hibernate"
+      }
+    },
+    "button": {
+      "stop": {
+        "name": "Stop watering"
+      },
+      "pair_sensor": {
+        "name": "Pair moisture sensor"
+      },
+      "run_schedule": {
+        "name": "Run {schedule}"
+      }
+    },
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
+      },
+      "watering": {
+        "name": "Watering"
+      },
+      "flow_fault": {
+        "name": "{zone} flow fault"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Idle",
+          "watering": "Watering",
+          "paused": "Paused",
+          "pump_delay": "Pump delay",
+          "cycle_soak": "Cycle and soak",
+          "hibernating": "Hibernating",
+          "offline": "Offline"
+        }
+      },
+      "active_zone": {
+        "name": "Active zone"
+      },
+      "watering_ends": {
+        "name": "Watering ends"
+      },
+      "water_today": {
+        "name": "Water today"
+      },
+      "water_month": {
+        "name": "Water this month"
+      },
+      "wifi_signal": {
+        "name": "Wi-Fi signal"
+      },
+      "last_seen": {
+        "name": "Last seen"
+      },
+      "zone_water_today": {
+        "name": "{zone} water today"
+      },
+      "zone_last_flow": {
+        "name": "{zone} last flow"
+      },
+      "zone_usual_flow": {
+        "name": "{zone} usual flow"
+      },
+      "zone_last_run": {
+        "name": "{zone} last run"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "zigbee_signal": {
+        "name": "Zigbee signal"
+      },
+      "last_reading": {
+        "name": "Last reading"
+      }
+    }
+  },
+  "services": {
+    "run_zone": {
+      "name": "Run zone",
+      "description": "Waters one zone for a while.",
+      "fields": {
+        "minutes": {
+          "name": "Minutes",
+          "description": "How long; defaults to the zone's run time."
+        }
+      }
+    },
+    "stop_zone": {
+      "name": "Stop zone",
+      "description": "Stops one zone."
+    },
+    "run_all_zones": {
+      "name": "Run all zones",
+      "description": "Waters every zone in turn.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "minutes": {
+          "name": "Minutes",
+          "description": "How long each zone runs."
+        }
+      }
+    },
+    "run_schedule": {
+      "name": "Run schedule",
+      "description": "Starts a Spruce schedule now.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "Schedule name (or id) as in the Spruce app."
+        }
+      }
+    },
+    "stop_schedule": {
+      "name": "Stop schedule",
+      "description": "Stops a running Spruce schedule.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "Schedule name (or id) as in the Spruce app."
+        }
+      }
+    },
+    "stop": {
+      "name": "Stop watering",
+      "description": "Stops all watering.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        }
+      }
+    },
+    "set_hibernate": {
+      "name": "Set hibernate",
+      "description": "Turns winter hibernation on or off (no schedules run while on).",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "enabled": {
+          "name": "Hibernate",
+          "description": "On to hibernate."
+        }
+      }
+    },
+    "pair_sensor": {
+      "name": "Pair moisture sensor",
+      "description": "Lets a reset Spruce moisture sensor join the controller.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        }
+      }
+    },
+    "import_history": {
+      "name": "Import water history",
+      "description": "Re-imports Spruce's water history into long-term statistics.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "start_date": {
+          "name": "From",
+          "description": "First day to import; defaults to when the controller was added."
+        }
+      }
+    }
+  }
+}

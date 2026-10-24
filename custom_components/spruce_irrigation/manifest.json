@@ -1,0 +1,17 @@
+{
+  "domain": "spruce_irrigation",
+  "name": "Spruce Irrigation",
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@UnpaidMoneyMike"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/UnpaidMoneyMike/ha-spruce-irrigation",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/UnpaidMoneyMike/ha-spruce-irrigation/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

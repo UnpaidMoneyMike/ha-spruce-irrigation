@@ -1,0 +1,234 @@
+"""Async client for the Spruce irrigation cloud (api.spruceirrigation.com).
+
+Spruce controllers (Gen2 Wi-Fi) have no local API; the Spruce web app and this client talk to Spruce's cloud with
+the account API key, sent as-is in the Authorization header. Three families of endpoints are used:
+
+  v2/...          documented partner API: controllers, settings, zone and sensor status
+  app/api/...     the web app's data API: history (water_summary, gpm_data, events), forecast, flow models
+  app/device/...  commands relayed to the controller: run/stop zones and schedules, hibernate, sensor pairing
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import date
+from typing import Any
+
+import aiohttp
+
+_LOGGER = logging.getLogger(__name__)
+
+BASE_URL = "https://api.spruceirrigation.com/"
+TIMEOUT = aiohttp.ClientTimeout(total=60)
+RETRIES = 3
+
+
+class SpruceError(Exception):
+    """Spruce's cloud could not be reached or answered with an error."""
+
+
+class SpruceAuthError(SpruceError):
+    """The API key was refused."""
+
+
+class SpruceCommandError(SpruceError):
+    """The controller did not accept a command."""
+
+
+class SpruceApi:
+    """One Spruce account."""
+
+    def __init__(self, session: aiohttp.ClientSession, api_key: str) -> None:
+        self._session = session
+        self._key = api_key.strip()
+
+    async def _request(self, method: str, path: str, params: dict[str, Any] | None = None) -> Any:
+        params = {k: v for k, v in (params or {}).items() if v is not None}
+        headers = {"Authorization": self._key}
+        for attempt in range(RETRIES):
+            try:
+                async with self._session.request(
+                    method,
+                    BASE_URL + path,
+                    params=params if method == "GET" else None,
+                    data=params if method != "GET" else None,
+                    headers=headers,
+                    timeout=TIMEOUT,
+                ) as resp:
+                    if resp.status in (401, 403):
+                        raise SpruceAuthError("Spruce refused the API key")
+                    if resp.status >= 500 and attempt < RETRIES - 1:   # Spruce sometimes answers 504 on slow requests
+                        await asyncio.sleep(5 * (attempt + 1))
+                        continue
+                    if resp.status >= 400:
+                        raise SpruceError(f"{path}: HTTP {resp.status}")
+                    text = await resp.text()
+            except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+                if attempt < RETRIES - 1:
+                    await asyncio.sleep(5 * (attempt + 1))
+                    continue
+                raise SpruceError(f"{path}: {err}") from err
+            if not text.strip():
+                return None
+            try:
+                data = await asyncio.get_running_loop().run_in_executor(None, _json, text)
+            except ValueError as err:
+                raise SpruceError(f"{path}: not JSON") from err
+            if isinstance(data, dict) and data.get("error") is True and "message" in data:
+                if "authoriz" in str(data["message"]).lower():
+                    raise SpruceAuthError(data["message"])
+                raise SpruceError(f"{path}: {data['message']}")
+            return data
+        raise SpruceError(f"{path}: no answer")
+
+    # ---- account and settings ------------------------------------------------------------------------------------
+
+    async def controllers(self) -> dict[str, dict]:
+        """Controllers on the account, keyed by device id."""
+        return await self._request("GET", "v2/controllers") or {}
+
+    async def controller_settings(self, controller: str) -> dict:
+        """Name, model, firmware, zones (name, nozzle, soil, configured gpm, sensor), schedules."""
+        return await self._request("GET", "v2/controller_settings", {"controller_id": controller}) or {}
+
+    async def settings(self) -> dict:
+        """Everything the web app knows: controllers (incl. hibernate, rain/freeze skip), schedules, sensors."""
+        return await self._request("GET", "app/api/settings") or {}
+
+    async def flow_meter_models(self) -> list[dict]:
+        return await self._request("GET", "app/api/flow_meter_models") or []
+
+    # ---- live status ---------------------------------------------------------------------------------------------
+
+    async def zone_status(self, controller: str) -> dict[str, dict]:
+        """Per zone: zone_state (1 = watering), epoch_time (start), duration (s), schedule_id."""
+        return await self._request("GET", "v2/zone_status", {"controller_id": controller}) or {}
+
+    async def sensor_status(self, controller: str) -> dict[str, dict]:
+        """Per moisture sensor: moisture %, temperature (F), battery (V), signal (dB), each with its epoch."""
+        return await self._request("GET", "v2/sensor_status", {"controller_id": controller}) or {}
+
+    async def controller_status(self, controller: str) -> dict:
+        """current_state 1 = online, epoch_time of the last message."""
+        return await self._request("GET", "app/api/controller_status", {"controller_id": controller}) or {}
+
+    async def run_status(self, controller: str) -> dict[str, int]:
+        """Seconds left of pause, pump delay and cycle-soak, asked of the controller itself."""
+        data = await self.device("GET", "run_status", controller)
+        parts = [int(float(x or 0)) for x in str(data.get("result", "")).split(",")[:3]] + [0, 0, 0]
+        return {"pause": parts[0], "pump_delay": parts[1], "cycle_soak": parts[2]}
+
+    async def network(self, controller: str) -> dict[str, Any]:
+        """The controller's Wi-Fi channel, signal and address."""
+        data = await self.device("GET", "network_var", controller)
+        f = str(data.get("result", "")).split(",") + [""] * 6
+        return {"channel": f[2], "signal": _int(f[3]), "ip": f[4]}
+
+    async def forecast(self, controller: str) -> dict:
+        return await self._request("GET", "app/api/weather_forecast", {"controller_id": controller}) or {}
+
+    # ---- history -------------------------------------------------------------------------------------------------
+
+    async def water_summary(self, controller: str, start: date, end: date) -> list[dict]:
+        """Water per zone per day per schedule: ymd, zone, schedule_id, schedule, minutes, gallons."""
+        data = await self._request("GET", "app/api/water_summary",
+                                   {"deviceid": controller, "start_date": start.isoformat(), "end_date": end.isoformat()})
+        return _columns_to_rows(data, ("ymd", "zone", "schedule_id", "schedule", "schedule_type", "minutes", "gallons"))
+
+    async def gpm_data(self, controller: str, start: date, end: date) -> list[dict]:
+        """Measured flow of each zone run: DTepoch (run start), zone, gpm (0 if the meter counted nothing)."""
+        data = await self._request("GET", "app/api/gpm_data",
+                                   {"deviceid": controller, "start_date": start.isoformat(), "end_date": end.isoformat()})
+        return _columns_to_rows(data, ("DTepoch", "zone", "gpm"))
+
+    async def events(self, controller: str, start_epoch: int, end_epoch: int) -> list[dict]:
+        """Activity log entries: id, type, zone, message, DTepoch."""
+        data = await self._request("GET", "app/api/events",
+                                   {"deviceid": controller, "start_epoch": start_epoch, "end_epoch": end_epoch})
+        # Spruce also returns old entries of some types (e.g. outlet_manual) whatever the window; keep the window's
+        return [e for e in data if start_epoch <= (e.get("DTepoch") or 0) <= end_epoch] if isinstance(data, list) else []
+
+    # ---- commands ------------------------------------------------------------------------------------------------
+
+    async def device(self, method: str, command: str, controller: str, **params: Any) -> dict:
+        data = await self._request(method, f"app/device/{command}",
+                                   {"device_id": controller, "gateway": "wifi", **params})
+        return data if isinstance(data, dict) else {}
+
+    async def _spruceset(self, controller: str, command: str) -> None:
+        data = await self.device("POST", "spruce", controller, spruceset=command)
+        if data.get("return_value") != 1:
+            raise SpruceCommandError(f"The controller did not accept '{command.split(',')[1] if ',' in command else command}'")
+
+    async def zone_on(self, controller: str, zone: int, seconds: int, schedule_id: int = 0) -> None:
+        await self._spruceset(controller, f"run,zon,{zone},{int(seconds)},{schedule_id}")
+
+    async def zone_off(self, controller: str, zone: int, schedule_id: int = 0) -> None:
+        await self._spruceset(controller, f"run,zoff,{zone},{schedule_id}")
+
+    async def run_all(self, controller: str, seconds: int) -> None:
+        await self._spruceset(controller, f"run,zall,{int(seconds)}")
+
+    async def schedule_on(self, controller: str, schedule_id: int) -> None:
+        await self._spruceset(controller, f"run,son,{schedule_id}")
+
+    async def schedule_off(self, controller: str, schedule_id: int) -> None:
+        await self._spruceset(controller, f"run,soff,{schedule_id}")
+
+    async def stop(self, controller: str) -> None:
+        await self._spruceset(controller, "stop")
+
+    async def save_controller_settings(self, controller: str, values: dict[str, str]) -> None:
+        """Save controller settings in Spruce's cloud, as the web app does (one record per setting)."""
+        records = {name: {"name": name, "value": value, "device_id": controller, "zone": 99, "schedule_id": 0,
+                          "settings_key_type": "controller", "settings_key": f"controller.{controller}"}
+                   for name, value in values.items()}
+        await self._request("POST", "app/api/settings", {"settings": _dumps(records)})
+
+    async def hibernate(self, controller: str, enabled: bool) -> None:
+        """Hibernate (winter mode): schedules don't run until turned off again. Like the app: save the setting,
+        then tell the controller."""
+        await self.save_controller_settings(controller, {"hibernate_enabled": "1" if enabled else "0",
+                                                         **({} if enabled else {"hibernate_end_date": ""})})
+        await self._spruceset(controller, f"hibernate,{1 if enabled else 0}")
+
+    async def pause(self, pause_seconds: int) -> None:
+        """Pause watering for a while (account-wide, v2 API)."""
+        await self._request("POST", "v2/pause", {"pausetime": int(pause_seconds)})
+
+    async def resume(self) -> None:
+        await self._request("POST", "v2/resume", {"pausetime": 0})
+
+    async def pair_sensor(self, controller: str) -> None:
+        """Put the controller's Zigbee network in listen mode so a reset moisture sensor can join."""
+        await self._spruceset(controller, "device,add,sensor")
+
+    async def cancel_pairing(self, controller: str) -> None:
+        await self._spruceset(controller, "device,add,cancel")
+
+
+def _json(text: str) -> Any:
+    import json
+
+    return json.loads(text)
+
+
+def _dumps(value: Any) -> str:
+    import json
+
+    return json.dumps(value, separators=(",", ":"))
+
+
+def _int(value: Any) -> int | None:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _columns_to_rows(data: Any, keys: tuple[str, ...]) -> list[dict]:
+    """Spruce's history endpoints return one list per column; turn them into rows."""
+    if not isinstance(data, dict) or not isinstance(data.get(keys[0]), list):
+        return []
+    columns = [data.get(k) or [None] * len(data[keys[0]]) for k in keys]
+    return [dict(zip(keys, row)) for row in zip(*columns)]
