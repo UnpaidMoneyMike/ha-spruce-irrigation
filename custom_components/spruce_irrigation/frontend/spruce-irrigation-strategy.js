@@ -38,9 +38,8 @@ async function collect(hass) {
       else if (CONTROLLER_KEYS.includes(key)) c.entities[key] = entityId;
       else if ((m = unique.match(sensorRe))) (c.sensors[m[1]] ??= {})[m[2]] = entityId;
     }
-    const status = hass.entities[c.entities.status];
-    const device = status && hass.devices[status.device_id];
-    c.name = (device && (device.name_by_user || device.name)) || "Spruce";
+    c.name = deviceName(hass, c.entities.status) || "Spruce";
+    for (const s of Object.values(c.sensors)) s.name = deviceName(hass, s.moisture || s.last_reading) || "Moisture sensor";
 
     const short = ctrl.toLowerCase().replace(/[^a-z0-9]/g, "").slice(-8);
     const prefix = `${DOMAIN}:${short}_`;
@@ -57,6 +56,11 @@ async function collect(hass) {
     }
     return c;
   });
+}
+
+function deviceName(hass, entityId) {
+  const device = hass.devices[hass.entities[entityId]?.device_id];
+  return device && (device.name_by_user || device.name);
 }
 
 /** An entity's name without the controller (device) name in front. */
@@ -130,7 +134,7 @@ function overviewView(hass, c, zones, schedules) {
   const sensors = Object.values(c.sensors);
   if (sensors.length) {
     sections.push(section([heading("Moisture", "mdi:water-percent"),
-      ...sensors.flatMap((s) => [tile(s.moisture), tile(s.temperature)])]));
+      ...sensors.map((s) => tile(s.moisture, { name: s.name, state_content: ["state", "last_changed"] }))]));
   }
   return {
     type: "sections", title: "Overview", path: "overview", icon: "mdi:sprinkler-variant", max_columns: 4,
@@ -214,7 +218,7 @@ function diagnosticsView(c) {
       section([heading("Controller", "mdi:wifi"), tile(e.online), tile(e.wifi_signal), tile(e.last_seen),
         press(e.pair_sensor, "Let a moisture sensor join the controller?")]),
       ...Object.values(c.sensors).map((s) => section([
-        heading("Moisture sensor", "mdi:leaf"), tile(s.moisture), tile(s.temperature), tile(s.battery),
+        heading(s.name, "mdi:leaf"), tile(s.moisture), tile(s.temperature), tile(s.battery),
         tile(s.signal), tile(s.last_reading),
       ])),
     ],
