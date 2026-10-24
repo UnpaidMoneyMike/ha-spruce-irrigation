@@ -28,6 +28,20 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 | **History** | Spruce's water history (litres and minutes per zone per day, back to when the controller was added) imported into long-term statistics `spruce_irrigation:<controller>_zone_<n>_water` / `_minutes`, the same split per schedule (`..._zone_<n>_schedule_<id>_water` / `_minutes`), and a controller total |
 | **Events** | `spruce_irrigation_event` fired for each new Spruce activity-log entry (zone finished with gallons and gpm, flow alerts, schedule skips…) for automations |
 
+### Dashboard
+
+A ready-made dashboard comes with the integration: Settings → Dashboards → **Add dashboard** → under
+*Community dashboards* pick **Spruce Irrigation** (Home Assistant 2026.5 or later). It has Overview, Zones,
+Schedules, History and Diagnostics views, built from your controller's entities and water statistics each time
+it opens, so new zones, schedules and sensors appear by themselves. To change it by hand, open the dashboard →
+✏ → **Take control**. On older Home Assistant versions, create an empty dashboard, open its raw configuration
+editor and enter:
+
+```yaml
+strategy:
+  type: custom:spruce-irrigation
+```
+
 ### Services
 
 `spruce_irrigation.run_zone` (valve target, minutes), `stop_zone`, `run_all_zones` (minutes),

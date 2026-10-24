@@ -223,8 +223,9 @@ function diagnosticsView(c) {
       section([heading("Controller", "mdi:wifi"), tile(e.online), tile(e.wifi_signal), tile(e.last_seen),
         press(e.pair_sensor, "Let a moisture sensor join the controller?")]),
       ...Object.values(c.sensors).map((s) => section([
-        heading(s.name, "mdi:leaf"), tile(s.moisture), tile(s.temperature), tile(s.battery),
-        tile(s.signal), tile(s.last_reading),
+        heading(s.name, "mdi:leaf"), tile(s.moisture, { name: "Moisture" }), tile(s.temperature, { name: "Temperature" }),
+        tile(s.battery, { name: "Battery" }), tile(s.signal, { name: "Signal" }),
+        tile(s.last_reading, { name: "Last reading" }),
       ])),
     ],
   };
