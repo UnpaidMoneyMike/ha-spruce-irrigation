@@ -20,6 +20,14 @@ def auto_enable_custom_integrations(recorder_mock, enable_custom_integrations):
     yield
 
 
+@pytest.fixture(autouse=True)
+async def drain(hass: HomeAssistant):
+    """Let background statistics imports started by a test finish before the recorder shuts down."""
+    yield
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await async_wait_recording_done(hass)
+
+
 @pytest.fixture
 def expected_lingering_timers() -> bool:
     """Commands schedule two confirming refreshes a few seconds later."""
