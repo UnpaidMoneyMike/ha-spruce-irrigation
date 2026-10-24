@@ -3,12 +3,10 @@
     "step": {
       "user": {
         "title": "Connect your Spruce account",
-        "description": "Spruce controllers only talk to Spruce's cloud. Enter your account API key: in the Spruce web app (app.spruceirrigation.com) open the browser's developer tools (F12) → Network, click any request to api.spruceirrigation.com and copy the value of its Authorization header. Spruce support can also issue one.",
-        "data": {
-          "api_key": "API key"
-        },
-        "data_description": {
-          "api_key": "Gives full access to your Spruce account; Home Assistant keeps it in its configuration, like other integrations' keys."
+        "description": "Spruce controllers only talk to Spruce's cloud. Sign in with your Spruce account and Home Assistant fetches the account's API key (only the key is kept, not your password), or paste an API key you already have.",
+        "menu_options": {
+          "sign_in": "Sign in with my Spruce account",
+          "api_key": "Enter an API key"
         }
       },
       "controller": {
@@ -17,11 +15,37 @@
           "controller_id": "Controller"
         }
       },
-      "reauth_confirm": {
-        "title": "Spruce API key needed",
-        "description": "Spruce no longer accepts the saved key (it changes if the account password changes). Enter the current key.",
+      "reauth": {
+        "title": "Spruce needs you to sign in again",
+        "description": "Spruce no longer accepts the saved key (it changes when the account password changes).",
+        "menu_options": {
+          "sign_in": "Sign in with my Spruce account",
+          "api_key": "Enter an API key"
+        }
+      },
+      "reconfigure": {
+        "title": "Change how Home Assistant connects to Spruce",
+        "menu_options": {
+          "sign_in": "Sign in with my Spruce account",
+          "api_key": "Enter an API key"
+        }
+      },
+      "sign_in": {
+        "title": "Sign in to Spruce",
+        "description": "The same username (or email) and password as the Spruce app. They're used once to fetch your account's API key and are not stored.",
+        "data": {
+          "username": "Username or email",
+          "password": "Password"
+        }
+      },
+      "api_key": {
+        "title": "Enter your Spruce API key",
+        "description": "In the Spruce web app (app.spruceirrigation.com) open the browser's developer tools (F12) → Network, click any request to api.spruceirrigation.com and copy the value of its Authorization header. Spruce support can also issue one.",
         "data": {
           "api_key": "API key"
+        },
+        "data_description": {
+          "api_key": "Gives full access to your Spruce account; Home Assistant keeps it in its configuration, like other integrations' keys."
         }
       }
     },
@@ -29,11 +53,14 @@
       "invalid_auth": "Spruce did not accept that key.",
       "cannot_connect": "Couldn't reach Spruce's cloud. Try again shortly.",
       "no_controllers": "That account has no controllers.",
-      "wrong_account": "That key is for a different Spruce account."
+      "wrong_account": "That key is for a different Spruce account.",
+      "invalid_sign_in": "Spruce did not accept that username or password."
     },
     "abort": {
       "already_configured": "This controller is already set up.",
-      "reauth_successful": "The new key works."
+      "reauth_successful": "The new key works.",
+      "wrong_account": "That's a different Spruce account from the one this controller belongs to.",
+      "reconfigure_successful": "Done: Home Assistant now uses the new key."
     }
   },
   "options": {
@@ -70,11 +97,29 @@
     "number": {
       "run_time": {
         "name": "{zone} run time"
+      },
+      "schedule_rain_threshold": {
+        "name": "{schedule} rain skip threshold"
+      },
+      "freeze_temperature": {
+        "name": "Freeze skip temperature"
       }
     },
     "switch": {
       "hibernate": {
         "name": "Hibernate"
+      },
+      "schedule_enabled": {
+        "name": "{schedule}"
+      },
+      "schedule_rain_skip": {
+        "name": "{schedule} rain skip"
+      },
+      "schedule_freeze_skip": {
+        "name": "{schedule} freeze skip"
+      },
+      "schedule_wind_skip": {
+        "name": "{schedule} wind skip"
       }
     },
     "button": {
@@ -150,6 +195,11 @@
       },
       "last_reading": {
         "name": "Last reading"
+      }
+    },
+    "time": {
+      "schedule_start": {
+        "name": "{schedule} start time"
       }
     }
   },
@@ -255,6 +305,32 @@
         "start_date": {
           "name": "From",
           "description": "First day to import; defaults to when the controller was added."
+        }
+      }
+    },
+    "set_schedule_zone": {
+      "name": "Set a zone in a schedule",
+      "description": "Changes how much a zone waters in a Spruce schedule (percent of the time Spruce works out), or takes it out of the schedule.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "Schedule name (or id) as in the Spruce app."
+        },
+        "zone": {
+          "name": "Zone",
+          "description": "Zone name or number."
+        },
+        "watering_percent": {
+          "name": "Watering %",
+          "description": "100 = as Spruce works out; 1–300."
+        },
+        "enabled": {
+          "name": "In this schedule",
+          "description": "Off takes the zone out of the schedule."
         }
       }
     }

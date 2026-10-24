@@ -177,9 +177,19 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
         for sid, s in (app_settings.get("schedule") or {}).items():
             if str(s.get("master_controller", self.controller)) not in (self.controller, "None", ""):
                 continue
-            data.schedules[int(sid)] = {"name": s.get("schedule_name") or f"Schedule {sid}",
-                                        "type": s.get("schedule_type"), "enabled": str(s.get("sched_enabled")) == "1",
-                                        "start_time": s.get("start_time")}
+            data.schedules[int(sid)] = {
+                "name": s.get("schedule_name") or f"Schedule {sid}", "type": s.get("schedule_type"),
+                "enabled": str(s.get("sched_enabled")) == "1", "start_time": s.get("start_time"),
+                # Skips default to on in the Spruce app when a schedule doesn't store them
+                "rain_skip": str(s.get("rain_delay_enabled", "1")) == "1",
+                "freeze_skip": str(s.get("freeze_delay_enabled", "1")) == "1",
+                "wind_skip": str(s.get("wind_delay_enabled", "1")) == "1",
+                "rain_inches": _float(s.get("rain_delay_inches")) if s.get("rain_delay_inches") not in (None, "") else 0.15,
+                "zones": {int(z): {"enabled": str(v.get("zonesched_enabled", "1")) == "1",
+                                   "scaling": _float(v.get("duration_scaling")) or 100.0}
+                          for z, v in _literal(s.get("zone")).items() if str(z).isdigit() and isinstance(v, dict)},
+                "next_date": s.get("next_date"), "next_minutes": _float(s.get("next_minutes")),
+            }
 
         month = today.replace(day=1)
         for row in water:
@@ -248,6 +258,19 @@ def _sensor(s: dict) -> dict:
         "battery_v": _float(s.get("battery")), "signal": _float(s.get("signal")),
         "moisture_at": stamp("moisture_DTepoch"), "latest_at": stamp("latest_DTepoch"),
     }
+
+
+def _literal(v: Any) -> dict:
+    """Spruce stores a schedule's zone settings as a Python-style dict string; read it safely."""
+    if isinstance(v, dict):
+        return v
+    try:
+        import ast
+
+        value = ast.literal_eval(v) if isinstance(v, str) else {}
+    except (ValueError, SyntaxError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _float(v: Any) -> float | None:

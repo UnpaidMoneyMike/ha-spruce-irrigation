@@ -26,6 +26,7 @@ from .const import (
     SERVICE_PAIR_SENSOR,
     SERVICE_RUN_ALL,
     SERVICE_RUN_SCHEDULE,
+    SERVICE_SET_SCHEDULE_ZONE,
     SERVICE_STOP,
     SERVICE_STOP_SCHEDULE,
 )
@@ -33,9 +34,11 @@ from .coordinator import SpruceHistoryCoordinator, SpruceStatusCoordinator
 from .statistics import async_import_history, async_update_recent_statistics
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH, Platform.VALVE]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH, Platform.TIME,
+             Platform.VALVE]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 HISTORY_IMPORTED = "history_imported"
+HISTORY_VERSION = 2   # 2: statistics per zone per schedule as well; a lower stored version re-imports everything
 
 
 @dataclass
@@ -61,6 +64,27 @@ class SpruceRuntime:
     async def _refresh(self, _now) -> None:
         await self.status.async_request_refresh()
 
+    async def async_set_schedule(self, schedule_id: int, values: dict[str, str], zone: int | None = None,
+                                 local: dict | None = None) -> None:
+        """Change a schedule as the Spruce app does: save the settings in Spruce's cloud, then (for a schedule that
+        runs on the controller) send the controller its new run list; disabling removes it from the controller.
+        `local` updates what Home Assistant shows straight away."""
+        schedule = self.history.data.schedules.get(schedule_id)
+        if schedule is None:
+            raise ServiceValidationError(f"No Spruce schedule {schedule_id}")
+        try:
+            await self.api.save_schedule_settings(self.controller, schedule_id, values, zone)
+            enabled = values.get("sched_enabled", "1" if schedule["enabled"] else "0") == "1"
+            if schedule.get("type") != "manual" and ("sched_enabled" in values or enabled):
+                await self.api.sync_schedule(self.controller, schedule_id, enabled)
+        except SpruceError as err:
+            raise HomeAssistantError(f"Couldn't change {schedule['name']}: {err}") from err
+        if local:
+            target = schedule["zones"].setdefault(zone, {}) if zone is not None else schedule
+            target.update(local)
+            self.history.async_update_listeners()
+        await self.history.async_request_refresh()
+
 
 type SpruceConfigEntry = ConfigEntry[SpruceRuntime]
 
@@ -83,10 +107,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> bo
     # Water history into long-term statistics: everything once, then the last week after each history update
     @callback
     def _history_updated() -> None:
-        if history.last_update_success and entry.data.get(HISTORY_IMPORTED):
+        if history.last_update_success and entry.data.get(HISTORY_IMPORTED) == HISTORY_VERSION:
             entry.async_create_background_task(hass, async_update_recent_statistics(hass, entry), "spruce statistics")
     entry.async_on_unload(history.async_add_listener(_history_updated))
-    if not entry.data.get(HISTORY_IMPORTED):
+    if entry.data.get(HISTORY_IMPORTED) != HISTORY_VERSION:
         entry.async_create_background_task(hass, _first_import(hass, entry), "spruce history import")
     entry.async_on_unload(entry.add_update_listener(_options_updated))
     return True
@@ -98,7 +122,7 @@ async def _first_import(hass: HomeAssistant, entry: SpruceConfigEntry) -> None:
     except SpruceError as err:
         _LOGGER.warning("Spruce water history not imported yet (will retry at the next restart): %s", err)
         return
-    hass.config_entries.async_update_entry(entry, data={**entry.data, HISTORY_IMPORTED: True})
+    hass.config_entries.async_update_entry(entry, data={**entry.data, HISTORY_IMPORTED: HISTORY_VERSION})
 
 
 async def _options_updated(hass: HomeAssistant, entry: SpruceConfigEntry) -> None:
@@ -120,6 +144,10 @@ SCHEMAS = {
     SERVICE_HIBERNATE: vol.Schema({DEVICE: cv.string, vol.Required("enabled"): cv.boolean}),
     SERVICE_PAIR_SENSOR: vol.Schema({DEVICE: cv.string}),
     SERVICE_IMPORT_HISTORY: vol.Schema({DEVICE: cv.string, vol.Optional("start_date"): cv.date}),
+    SERVICE_SET_SCHEDULE_ZONE: vol.Schema({
+        DEVICE: cv.string, vol.Required("schedule"): cv.string, vol.Required("zone"): cv.string,
+        vol.Optional("watering_percent"): vol.All(vol.Coerce(int), vol.Range(min=1, max=300)),
+        vol.Optional("enabled"): cv.boolean}),
 }
 
 
@@ -140,6 +168,19 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 await api.hibernate(ctrl, call.data["enabled"])
             elif call.service == SERVICE_PAIR_SENSOR:
                 await api.pair_sensor(ctrl)
+            elif call.service == SERVICE_SET_SCHEDULE_ZONE:
+                sid, zone = _schedule_id(rt, call.data["schedule"]), _zone(rt, call.data["zone"])
+                values, local = {}, {}
+                if "watering_percent" in call.data:
+                    values["duration_scaling"] = str(call.data["watering_percent"])
+                    local["scaling"] = float(call.data["watering_percent"])
+                if "enabled" in call.data:
+                    values["zonesched_enabled"] = "1" if call.data["enabled"] else "0"
+                    local["enabled"] = call.data["enabled"]
+                if not values:
+                    raise ServiceValidationError("Give watering_percent and/or enabled")
+                await rt.async_set_schedule(sid, values, zone=zone, local=local)
+                return
             elif call.service == SERVICE_IMPORT_HISTORY:
                 start: date | None = call.data.get("start_date")
                 await async_import_history(hass, entry, start)
@@ -163,6 +204,16 @@ def _entry_for(hass: HomeAssistant, device_id: str | None) -> SpruceConfigEntry:
     if len(entries) != 1:
         raise ServiceValidationError("Choose the Spruce controller (device) to use" if entries else "Spruce is not set up")
     return entries[0]
+
+
+def _zone(rt: SpruceRuntime, zone: str) -> int:
+    zones = rt.history.data.zones
+    if zone.strip().isdigit() and int(zone) in zones:
+        return int(zone)
+    for number, z in zones.items():
+        if z.name.lower() == zone.strip().lower():
+            return number
+    raise ServiceValidationError(f"No Spruce zone called '{zone}' (have: {', '.join(z.name for z in zones.values())})")
 
 
 def _schedule_id(rt: SpruceRuntime, schedule: str) -> int:

@@ -58,3 +58,25 @@ class SpruceMoistureEntity(SpruceEntity):
     @property
     def reading(self) -> dict:
         return self.status.sensors.get(self.sensor_id, {})
+
+
+class SpruceScheduleEntity(SpruceEntity):
+    """An entity for one Spruce schedule (on the controller device), named after it."""
+
+    def __init__(self, entry, schedule_id: int, key: str) -> None:
+        super().__init__(entry, entry.runtime_data.history, f"schedule_{schedule_id}_{key}")
+        self.schedule_id = schedule_id
+        self._attr_translation_placeholders = {"schedule": self.schedule.get("name", f"Schedule {schedule_id}")}
+
+    @property
+    def schedule(self) -> dict:
+        return self.rt.history.data.schedules.get(self.schedule_id, {})
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.schedule_id in self.rt.history.data.schedules
+
+
+def watering_schedules(entry) -> list[int]:
+    """Schedules with settings to show: everything but the manual one."""
+    return [sid for sid, s in entry.runtime_data.history.data.schedules.items() if s.get("type") != "manual"]

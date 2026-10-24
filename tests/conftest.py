@@ -34,8 +34,15 @@ def fake_api() -> AsyncMock:
     }
     api.settings.return_value = {
         "controller": {CONTROLLER: {"hibernate_enabled": "0", "rain_delay_inches": "0.15", "freeze_temperature": "35"}},
-        "schedule": {"11": {"schedule_name": "Morning", "schedule_type": "connected", "sched_enabled": "1",
-                            "start_time": "06:00", "master_controller": CONTROLLER}},
+        "schedule": {
+            "11": {"schedule_name": "Morning", "schedule_type": "connected", "sched_enabled": "1",
+                   "start_time": "06:00", "master_controller": CONTROLLER, "rain_delay_inches": "0.15",
+                   "freeze_delay_enabled": "0",
+                   "zone": {"1": {"duration_scaling": "100", "zonesched_enabled": "1"},
+                            "2": {"duration_scaling": "80", "zonesched_enabled": "1"}}},
+            "12": {"schedule_name": "Manual", "schedule_type": "manual", "sched_enabled": "1",
+                   "master_controller": CONTROLLER},
+        },
     }
     api.zone_status.return_value = {
         "0": {"zone_state": 0},

@@ -178,12 +178,36 @@ class SpruceApi:
     async def stop(self, controller: str) -> None:
         await self._spruceset(controller, "stop")
 
+    async def _save_settings(self, records: dict[str, dict]) -> None:
+        await self._request("POST", "app/api/settings", {"settings": _dumps(records)})
+
     async def save_controller_settings(self, controller: str, values: dict[str, str]) -> None:
         """Save controller settings in Spruce's cloud, as the web app does (one record per setting)."""
-        records = {name: {"name": name, "value": value, "device_id": controller, "zone": 99, "schedule_id": 0,
-                          "settings_key_type": "controller", "settings_key": f"controller.{controller}"}
-                   for name, value in values.items()}
-        await self._request("POST", "app/api/settings", {"settings": _dumps(records)})
+        await self._save_settings({
+            name: {"name": name, "value": value, "device_id": controller, "zone": 99, "schedule_id": 0,
+                   "settings_key_type": "controller", "settings_key": f"controller.{controller}"}
+            for name, value in values.items()})
+
+    async def save_schedule_settings(self, controller: str, schedule_id: int, values: dict[str, str],
+                                     zone: int | None = None) -> None:
+        """Save settings of a schedule (or of one zone within it), as the web app does."""
+        key = f"schedule.{schedule_id}" + (f".zone.{zone}" if zone is not None else "")
+        await self._save_settings({
+            name: {"name": name, "value": value, "device_id": controller, "zone": zone if zone is not None else 99,
+                   "schedule_id": schedule_id, "settings_key_type": "schedule_zone" if zone is not None else "schedule",
+                   "settings_key": key}
+            for name, value in values.items()})
+
+    async def sync_schedule(self, controller: str, schedule_id: int, enabled: bool) -> None:
+        """Tell the controller about a changed schedule, as the web app does after saving: an enabled schedule's run
+        list is worked out again in the cloud and sent to the controller; a disabled one is removed from the
+        controller (it stays on the account)."""
+        if not enabled:
+            await self._spruceset(controller, f"delete,{schedule_id}")
+            return
+        runlist = await self._request("GET", "schedule/runlist",
+                                      {"deviceid": controller, "scheduleid": schedule_id, "run": "false"}) or {}
+        await self._spruceset(controller, f"schedule,{schedule_id},{runlist.get('start_time') or 0}")
 
     async def hibernate(self, controller: str, enabled: bool) -> None:
         """Hibernate (winter mode): schedules don't run until turned off again. Like the app: save the setting,
@@ -205,6 +229,35 @@ class SpruceApi:
 
     async def cancel_pairing(self, controller: str) -> None:
         await self._spruceset(controller, "device,add,cancel")
+
+
+APP_URL = "https://app.spruceirrigation.com/"
+
+
+async def sign_in(session: aiohttp.ClientSession, username: str, password: str) -> str:
+    """Sign in as the Spruce web app does and return the account's API key. The session must keep cookies (Spruce's
+    login is a PHP session); the password is sent the way the web app sends it (MD5) and is not kept."""
+    import hashlib
+    import time
+
+    md5 = lambda text: hashlib.md5(text.encode()).hexdigest()  # noqa: E731 - Spruce's own scheme
+    try:
+        async with session.post(APP_URL + "ub_login_user.php", timeout=TIMEOUT, data={
+            "ge_username": username.strip(), "ge_password": md5(password), "ge_loc": "user",
+            "ge_rem_real": "0", "localStorage": "false",
+        }) as resp:
+            login = _json(await resp.text())
+        if not isinstance(login, dict) or login.get("Ack") != "success":
+            raise SpruceAuthError((login or {}).get("Msg") or "Spruce did not accept the username or password")
+        verification = md5(f"nk9r6{60 * round(time.time() / 60)}")   # as the web app's session check
+        async with session.get(APP_URL + "session.php", params={"verification": verification}, timeout=TIMEOUT) as resp:
+            account = _json(await resp.text())
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+        raise SpruceError(f"Couldn't sign in to Spruce: {err}") from err
+    key = (account or {}).get("api_key") if isinstance(account, dict) else None
+    if not key:
+        raise SpruceError("Signed in, but Spruce didn't return an API key")
+    return key
 
 
 def _json(text: str) -> Any:

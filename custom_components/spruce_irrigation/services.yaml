@@ -62,3 +62,23 @@ import_history:
     start_date:
       selector:
         date:
+set_schedule_zone:
+  fields:
+    device_id: *device
+    schedule:
+      required: true
+      selector:
+        text:
+    zone:
+      required: true
+      selector:
+        text:
+    watering_percent:
+      selector:
+        number:
+          min: 1
+          max: 300
+          unit_of_measurement: "%"
+    enabled:
+      selector:
+        boolean:

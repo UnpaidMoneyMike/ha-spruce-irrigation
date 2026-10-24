@@ -1,4 +1,4 @@
-"""Config flow: key accepted, refused, unreachable, duplicate, and reauth."""
+"""Config flow: sign in or paste a key; refused, unreachable, duplicate; reauth and reconfigure."""
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -15,6 +15,8 @@ from custom_components.spruce_irrigation.const import CONF_API_KEY, CONF_CONTROL
 
 from .conftest import CONTROLLER
 
+SIGN_IN = "custom_components.spruce_irrigation.config_flow.sign_in"
+
 
 @pytest.fixture(autouse=True)
 def no_setup():
@@ -23,13 +25,16 @@ def no_setup():
         yield
 
 
-async def _start(hass: HomeAssistant):
-    return await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+async def _choose(hass: HomeAssistant, step: str, flow=None):
+    """Pick a way in from the opening menu (a new entry unless a reauth/reconfigure flow is given)."""
+    if flow is None:
+        flow = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert flow["type"] is FlowResultType.MENU
+    return await hass.config_entries.flow.async_configure(flow["flow_id"], {"next_step_id": step})
 
 
-async def test_create_entry(hass: HomeAssistant, mock_api) -> None:
-    result = await _start(hass)
-    assert result["type"] is FlowResultType.FORM
+async def test_api_key(hass: HomeAssistant, mock_api) -> None:
+    result = await _choose(hass, "api_key")
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_API_KEY: " abc123 "})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Test Spruce"
@@ -37,21 +42,40 @@ async def test_create_entry(hass: HomeAssistant, mock_api) -> None:
     assert result["result"].unique_id == CONTROLLER
 
 
+async def test_sign_in(hass: HomeAssistant, mock_api) -> None:
+    with patch(SIGN_IN, return_value="fetchedkey") as signed:
+        result = await _choose(hass, "sign_in")
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"username": "me", "password": "pw"})
+    assert signed.await_args.args[1:] == ("me", "pw")
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {CONF_API_KEY: "fetchedkey", CONF_CONTROLLER: CONTROLLER}   # the password isn't kept
+
+
+async def test_sign_in_refused(hass: HomeAssistant, mock_api) -> None:
+    with patch(SIGN_IN, side_effect=SpruceAuthError("no")):
+        result = await _choose(hass, "sign_in")
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"username": "me", "password": "x"})
+    assert result["errors"] == {"base": "invalid_sign_in"}
+
+
 async def test_invalid_key(hass: HomeAssistant, mock_api) -> None:
     mock_api.controllers.side_effect = SpruceAuthError("no")
-    result = await hass.config_entries.flow.async_configure((await _start(hass))["flow_id"], {CONF_API_KEY: "x"})
+    result = await _choose(hass, "api_key")
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_API_KEY: "x"})
     assert result["errors"] == {"base": "invalid_auth"}
 
 
 async def test_cannot_connect(hass: HomeAssistant, mock_api) -> None:
     mock_api.controllers.side_effect = SpruceError("down")
-    result = await hass.config_entries.flow.async_configure((await _start(hass))["flow_id"], {CONF_API_KEY: "x"})
+    result = await _choose(hass, "api_key")
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_API_KEY: "x"})
     assert result["errors"] == {"base": "cannot_connect"}
 
 
 async def test_already_configured(hass: HomeAssistant, mock_api) -> None:
     MockConfigEntry(domain=DOMAIN, unique_id=CONTROLLER, data={CONF_API_KEY: "k", CONF_CONTROLLER: CONTROLLER}).add_to_hass(hass)
-    result = await hass.config_entries.flow.async_configure((await _start(hass))["flow_id"], {CONF_API_KEY: "k"})
+    result = await _choose(hass, "api_key")
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_API_KEY: "k"})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
 
@@ -59,8 +83,19 @@ async def test_already_configured(hass: HomeAssistant, mock_api) -> None:
 async def test_reauth(hass: HomeAssistant, mock_api) -> None:
     entry = MockConfigEntry(domain=DOMAIN, unique_id=CONTROLLER, data={CONF_API_KEY: "old", CONF_CONTROLLER: CONTROLLER})
     entry.add_to_hass(hass)
-    result = await entry.start_reauth_flow(hass)
+    result = await _choose(hass, "api_key", await entry.start_reauth_flow(hass))
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_API_KEY: "new"})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert entry.data[CONF_API_KEY] == "new"
+
+
+async def test_reconfigure_sign_in(hass: HomeAssistant, mock_api) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=CONTROLLER, data={CONF_API_KEY: "old", CONF_CONTROLLER: CONTROLLER})
+    entry.add_to_hass(hass)
+    with patch(SIGN_IN, return_value="fresh"):
+        result = await _choose(hass, "sign_in", await entry.start_reconfigure_flow(hass))
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"username": "me", "password": "pw"})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_API_KEY] == "fresh"

@@ -103,3 +103,30 @@ async def test_services(hass: HomeAssistant, entry, mock_api) -> None:
     mock_api.stop.assert_awaited()
     await hass.services.async_call("switch", "turn_on", {"entity_id": _entity(hass, "hibernate")}, blocking=True)
     mock_api.hibernate.assert_awaited_with(CONTROLLER, True)
+
+
+async def test_schedule_controls(hass: HomeAssistant, entry, mock_api) -> None:
+    reg = er.async_get(hass)
+    enabled = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_schedule_11_enabled")
+    assert hass.states.get(enabled).state == "on"
+    assert reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_schedule_12_enabled") is None   # manual: no settings
+    freeze = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_schedule_11_freeze_skip")
+    assert hass.states.get(freeze).state == "off"
+
+    await hass.services.async_call("switch", "turn_off", {"entity_id": enabled}, blocking=True)
+    mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"sched_enabled": "0"}, None)
+    mock_api.sync_schedule.assert_awaited_with(CONTROLLER, 11, False)
+
+    start = reg.async_get_entity_id("time", DOMAIN, f"{CONTROLLER}_schedule_11_start_time")
+    assert hass.states.get(start).state == "06:00:00"
+    await hass.services.async_call("time", "set_value", {"entity_id": start, "time": "05:30"}, blocking=True)
+    mock_api.save_schedule_settings.assert_awaited_with(
+        CONTROLLER, 11, {"start_time": "05:30", "start_time_mode": "set"}, None)
+
+    await hass.services.async_call(DOMAIN, "set_schedule_zone",
+                                   {"schedule": "Morning", "zone": "Garden Beds", "watering_percent": 120}, blocking=True)
+    mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"duration_scaling": "120"}, 2)
+
+    freeze_temp = reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_freeze_temperature")
+    await hass.services.async_call("number", "set_value", {"entity_id": freeze_temp, "value": 33}, blocking=True)
+    mock_api.save_controller_settings.assert_awaited_with(CONTROLLER, {"freeze_temperature": "33"})
