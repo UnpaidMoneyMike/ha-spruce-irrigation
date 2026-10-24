@@ -105,6 +105,26 @@ async def test_services(hass: HomeAssistant, entry, mock_api) -> None:
     mock_api.hibernate.assert_awaited_with(CONTROLLER, True)
 
 
+async def test_watering_plan(hass: HomeAssistant, entry) -> None:
+    reg = er.async_get(hass)
+    plan = reg.async_get_entity_id("calendar", DOMAIN, f"{CONTROLLER}_plan")
+    state = hass.states.get(plan)
+    assert state.state == "off"                                   # the next watering is tomorrow
+    assert state.attributes["message"] == "Morning · 20 min"
+    response = await hass.services.async_call(
+        "calendar", "get_events", {"entity_id": plan, "duration": {"days": 3}}, blocking=True, return_response=True)
+    summaries = [e["summary"] for e in response[plan]["events"]]
+    assert summaries == ["Morning: skipped (predicted rain)", "Morning · 20 min"]   # "no watering needed" left out
+    assert "Front Lawn: 12 min" in response[plan]["events"][1]["description"]
+
+    nxt = hass.states.get(reg.async_get_entity_id("sensor", DOMAIN, f"{CONTROLLER}_next_watering"))
+    assert nxt.attributes["schedule"] == "Morning" and nxt.attributes["minutes"] == 20
+    assert nxt.attributes["zones"] == {"Front Lawn": 12, "Garden Beds": 8}
+    assert hass.states.get(reg.async_get_entity_id("sensor", DOMAIN, f"{CONTROLLER}_watering_today")).state == "rain"
+    enabled = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_schedule_11_enabled")
+    assert hass.states.get(enabled).attributes["watering_days"] == "Every day"
+
+
 async def test_rename_reloads(hass: HomeAssistant, entry, mock_api) -> None:
     valve = _entity(hass, "zone_2_valve")
     status = entry.runtime_data.status

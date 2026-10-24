@@ -7,7 +7,8 @@
 const DOMAIN = "spruce_irrigation";
 
 const CONTROLLER_KEYS = ["status", "active_zone", "watering_ends", "water_today", "water_month", "wifi_signal",
-  "last_seen", "online", "watering", "hibernate", "stop", "pair_sensor", "freeze_temperature"];
+  "last_seen", "online", "watering", "hibernate", "stop", "pair_sensor", "freeze_temperature", "next_watering",
+  "watering_today", "plan"];
 const SENSOR_KEYS = ["moisture", "temperature", "battery", "signal", "last_reading"];
 
 /** The integration's controllers, zones, schedules, moisture sensors and water statistics. */
@@ -110,6 +111,7 @@ function overviewView(hass, c, zones, schedules) {
     section([
       heading("Controller", "mdi:sprinkler-variant"),
       tile(e.status), tile(e.active_zone), tile(e.watering_ends), tile(e.online),
+      tile(e.next_watering, { state_content: ["state", "schedule", "minutes"] }), tile(e.watering_today),
       tile(e.water_today), tile(e.water_month),
       tile(e.hibernate), press(e.stop),
     ]),
@@ -126,7 +128,7 @@ function overviewView(hass, c, zones, schedules) {
     sections.push(section([
       heading("Schedules", "mdi:calendar-clock"),
       ...watering.map((sid) => tile(c.schedules[sid].enabled, {
-        name: schedules[sid], state_content: ["state", "start_time", "next_date"],
+        name: schedules[sid], state_content: ["state", "start_time", "watering_days"],
       })),
       ...runOnly.map((sid) => press(c.schedules[sid].run, `Run ${schedules[sid]} now?`)),
     ]));
@@ -176,7 +178,7 @@ function schedulesView(c, zones, schedules) {
       .map((s) => ({ entity: s.id, name: zones[s.zone] || `Zone ${s.zone}` }));
     return section([
       heading(schedules[sid], "mdi:calendar-clock"),
-      tile(e.enabled, { name: "Enabled", state_content: ["state", "next_date"] }),
+      tile(e.enabled, { name: "Enabled", state_content: ["state", "watering_days"] }),
       tile(e.start_time, { name: "Start time" }),
       tile(e.rain_skip, { name: "Rain skip" }),
       tile(e.rain_threshold, { name: "Rain skip threshold" }),
@@ -186,6 +188,13 @@ function schedulesView(c, zones, schedules) {
       series.length ? waterChart("Water by zone, last 30 days", series, "day", 30) : null,
     ]);
   });
+  if (c.entities.plan) {
+    sections.unshift(section([
+      heading("Watering plan", "mdi:calendar-month"),
+      tile(c.entities.next_watering, { state_content: ["state", "schedule", "minutes"] }), tile(c.entities.watering_today),
+      { type: "calendar", entities: [c.entities.plan], initial_view: "listWeek", grid_options: { columns: "full" } },
+    ], 2));
+  }
   const other = Object.keys(c.stats.schedules).filter((sid) => !c.schedules[sid]?.enabled);
   if (other.length) {
     sections.push(section([

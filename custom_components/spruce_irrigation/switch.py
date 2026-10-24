@@ -70,7 +70,8 @@ class SpruceScheduleSwitch(SpruceScheduleEntity, SwitchEntity):
         if self._field != "enabled":
             return None
         return {"start_time": self.schedule.get("start_time"), "next_date": self.schedule.get("next_date"),
-                "next_minutes": self.schedule.get("next_minutes"), "type": self.schedule.get("type")}
+                "next_minutes": self.schedule.get("next_minutes"), "type": self.schedule.get("type"),
+                "watering_days": self.schedule.get("days")}
 
     async def _set(self, on: bool) -> None:
         await self.rt.async_set_schedule(self.schedule_id, {self._setting: "1" if on else "0"}, local={self._field: on})

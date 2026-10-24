@@ -163,6 +163,22 @@
       "watering_ends": {
         "name": "Watering ends"
       },
+      "next_watering": {
+        "name": "Next watering"
+      },
+      "watering_today": {
+        "name": "Watering today",
+        "state": {
+          "watering": "Watering",
+          "hibernating": "Hibernating",
+          "rain": "Skipping: predicted rain",
+          "rain_sensor": "Skipping: rain sensor",
+          "freeze": "Skipping: freeze",
+          "wind": "Skipping: wind",
+          "not_needed": "Not needed",
+          "none": "Nothing planned"
+        }
+      },
       "water_today": {
         "name": "Water today"
       },
@@ -200,6 +216,11 @@
     "time": {
       "schedule_start": {
         "name": "{schedule} start time"
+      }
+    },
+    "calendar": {
+      "plan": {
+        "name": "Watering plan"
       }
     }
   },

@@ -26,15 +26,18 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import SENSOR_STALE
-from .entity import SpruceEntity, SpruceMoistureEntity, SpruceZoneEntity
+from .entity import SpruceEntity, SpruceMoistureEntity, SpruceZoneEntity, planned_days
 
 STATES = ["idle", "watering", "paused", "pump_delay", "cycle_soak", "hibernating", "offline"]
+# Today's plan, most important first: a schedule watering beats one skipping
+TODAY = ["watering", "hibernating", "rain", "rain_sensor", "freeze", "wind", "not_needed", "none"]
 LPM = UnitOfVolumeFlowRate.LITERS_PER_MINUTE
 
 
 @dataclass(frozen=True, kw_only=True)
 class SpruceSensorDescription(SensorEntityDescription):
     value_fn: Callable[[Any], Any]
+    attrs_fn: Callable[[Any], dict[str, Any] | None] | None = None
     status: bool = False            # read from the 1-minute status coordinator (else the history one)
 
 
@@ -69,6 +72,37 @@ def _ends(rt):
     return run[1]["started"] + timedelta(seconds=run[1].get("duration") or 0)
 
 
+def _next_watering(rt) -> tuple[dict, dict] | None:
+    now = dt_util.utcnow()
+    return next(((s, d) for s, d in planned_days(rt) if d["seconds"] and d["start"] > now), None)
+
+
+def _next_attrs(rt) -> dict[str, Any]:
+    nxt = _next_watering(rt)
+    if not nxt:
+        return {}
+    schedule, day = nxt
+    zones = rt.history.data.zones
+    return {"schedule": schedule["name"], "minutes": round(day["seconds"] / 60),
+            "ends": (day["start"] + timedelta(seconds=day["seconds"])).isoformat(), "message": day["message"],
+            "zones": {zones[z].name if z in zones else f"Zone {z}": m for z, m in sorted(day["zones"].items())}}
+
+
+def _today(rt) -> list[tuple[dict, dict]]:
+    today = dt_util.now().date()
+    return [(s, d) for s, d in planned_days(rt) if d["day"] == today]
+
+
+def _today_state(rt) -> str:
+    states = ["watering" if d["seconds"] else d["reason"] for _, d in _today(rt)]
+    return min(states, key=TODAY.index) if states else "none"
+
+
+def _today_attrs(rt) -> dict[str, Any]:
+    return {"schedules": {s["name"]: {"minutes": round(d["seconds"] / 60), "starts": d["start"].isoformat(),
+                                      "message": d["message"]} for s, d in _today(rt)}}
+
+
 CONTROLLER_SENSORS = (
     SpruceSensorDescription(key="status", translation_key="status", device_class=SensorDeviceClass.ENUM, options=STATES,
                             value_fn=_controller_state, status=True),
@@ -76,6 +110,12 @@ CONTROLLER_SENSORS = (
                             value_fn=_active_zone, status=True),
     SpruceSensorDescription(key="watering_ends", translation_key="watering_ends", device_class=SensorDeviceClass.TIMESTAMP,
                             value_fn=_ends, status=True),
+    SpruceSensorDescription(key="next_watering", translation_key="next_watering", device_class=SensorDeviceClass.TIMESTAMP,
+                            icon="mdi:calendar-clock", value_fn=lambda rt: (_next_watering(rt) or (None, {}))[1].get("start"),
+                            attrs_fn=_next_attrs, status=True),
+    SpruceSensorDescription(key="watering_today", translation_key="watering_today", device_class=SensorDeviceClass.ENUM,
+                            options=TODAY, icon="mdi:calendar-today", value_fn=_today_state, attrs_fn=_today_attrs,
+                            status=True),
     SpruceSensorDescription(key="water_today", translation_key="water_today", device_class=SensorDeviceClass.WATER,
                             state_class=SensorStateClass.TOTAL_INCREASING, native_unit_of_measurement=UnitOfVolume.LITERS,
                             suggested_display_precision=0, value_fn=lambda rt: round(sum(rt.history.data.water_today.values()), 1)),
@@ -147,6 +187,11 @@ class SpruceControllerSensor(SpruceEntity, SensorEntity):
     @property
     def native_value(self):
         return self.entity_description.value_fn(self.rt)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        fn = self.entity_description.attrs_fn
+        return fn(self.rt) if fn else None
 
     @property
     def last_reset(self):

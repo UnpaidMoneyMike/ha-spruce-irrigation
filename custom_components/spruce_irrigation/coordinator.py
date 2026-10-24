@@ -189,6 +189,11 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
                                    "scaling": _float(v.get("duration_scaling")) or 100.0}
                           for z, v in _literal(s.get("zone")).items() if str(z).isdigit() and isinstance(v, dict)},
                 "next_date": s.get("next_date"), "next_minutes": _float(s.get("next_minutes")),
+                "days": _watering_days(s),
+                # Spruce's plan: its last few days and its forecast for the next ~18 (connected schedules re-plan daily)
+                "plan": {day: _plan_day(day, d, data.timezone)
+                         for part in ("prediction", "history") for day, d in (s.get(part) or {}).items()
+                         if isinstance(d, dict) and _is_date(day)},
             }
 
         month = today.replace(day=1)
@@ -258,6 +263,61 @@ def _sensor(s: dict) -> dict:
         "battery_v": _float(s.get("battery")), "signal": _float(s.get("signal")),
         "moisture_at": stamp("moisture_DTepoch"), "latest_at": stamp("latest_DTepoch"),
     }
+
+
+WEEKDAYS = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")   # Spruce's order
+
+
+def _is_date(text: str) -> bool:
+    try:
+        date.fromisoformat(text)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _plan_day(day: str, d: dict, tz: str | None) -> dict:
+    """One day of a schedule's plan: when it starts, how long it runs (0 = it doesn't) and why not."""
+    if d.get("epoch_time"):
+        start = datetime.fromtimestamp(int(d["epoch_time"]), timezone.utc)
+    else:   # no time given: the schedule's start time on that day, in the controller's time zone
+        hours, _, minutes = str(d.get("start_time") or "00:00").partition(":")
+        local = dt_util.get_time_zone(tz) if tz else None
+        start = datetime.combine(date.fromisoformat(day), datetime.min.time()).replace(
+            hour=int(hours or 0) % 24, minute=int(minutes[:2] or 0), tzinfo=local or dt_util.get_default_time_zone())
+    seconds = int(_float(d.get("total_duration_seconds")) or 0) if d.get("is_scheduled") else 0
+    if seconds:
+        reason = None
+    elif d.get("is_hibernating"):
+        reason = "hibernating"
+    elif d.get("is_rain_sensor_delay"):
+        reason = "rain_sensor"
+    elif d.get("is_rain_delay"):
+        reason = "rain"
+    elif d.get("is_freeze_delay"):
+        reason = "freeze"
+    elif d.get("is_wind_delay"):
+        reason = "wind"
+    else:
+        reason = "not_needed"
+    zones = {int(z): round(_float(v.get("water_duration_minutes")) or 0, 1)
+             for z, v in (d.get("zone") or {}).items() if str(z).isdigit() and isinstance(v, dict)}
+    return {"day": date.fromisoformat(day), "start": start, "seconds": seconds, "reason": reason,
+            "message": d.get("message"), "zones": {z: m for z, m in zones.items() if m}}
+
+
+def _watering_days(s: dict) -> str | None:
+    """Which days a schedule may water, in words."""
+    select, var = s.get("days_select"), str(s.get("days_var") or "")
+    if select == "everyx" and var.isdigit():
+        return "Every day" if int(var) <= 1 else f"Every {int(var)} days"
+    if select == "even_odd" and var in ("even", "odd"):
+        return f"{var.capitalize()} days"
+    if select == "days" and len(var) == 7 and set(var) <= {"0", "1"}:
+        if var == "1111111":
+            return "Every day"
+        return ", ".join(name[:3] for name, on in zip(WEEKDAYS, var) if on == "1") or "No days"
+    return None
 
 
 def _literal(v: Any) -> dict:

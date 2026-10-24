@@ -38,8 +38,8 @@ from .coordinator import SpruceHistoryCoordinator, SpruceStatusCoordinator
 from .statistics import async_import_history, async_update_recent_statistics
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH, Platform.TIME,
-             Platform.VALVE]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CALENDAR, Platform.NUMBER, Platform.SENSOR,
+             Platform.SWITCH, Platform.TIME, Platform.VALVE]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 HISTORY_IMPORTED = "history_imported"
 HISTORY_VERSION = 2   # 2: statistics per zone per schedule as well; a lower stored version re-imports everything

@@ -37,9 +37,19 @@ def fake_api() -> AsyncMock:
         "schedule": {
             "11": {"schedule_name": "Morning", "schedule_type": "connected", "sched_enabled": "1",
                    "start_time": "06:00", "master_controller": CONTROLLER, "rain_delay_inches": "0.15",
-                   "freeze_delay_enabled": "0",
+                   "freeze_delay_enabled": "0", "days_select": "everyx", "days_var": "1",
                    "zone": {"1": {"duration_scaling": "100", "zonesched_enabled": "1"},
-                            "2": {"duration_scaling": "80", "zonesched_enabled": "1"}}},
+                            "2": {"duration_scaling": "80", "zonesched_enabled": "1"}},
+                   "history": {(today - timedelta(days=1)).isoformat(): {
+                       "is_scheduled": False, "message": "No watering needed today.", "epoch_time": epoch - 86400}},
+                   "prediction": {
+                       today.isoformat(): {"is_scheduled": False, "is_rain_delay": True, "epoch_time": epoch + 60,
+                                           "message": "Schedule is skipping due to predicted rain."},
+                       (today + timedelta(days=1)).isoformat(): {
+                           "is_scheduled": True, "total_duration_seconds": 1200, "epoch_time": epoch + 86400,
+                           "message": "Watering for 20 minutes.",
+                           "zone": {"1": {"water_duration_minutes": 12}, "2": {"water_duration_minutes": 8}}},
+                       "average": {}}},
             "12": {"schedule_name": "Manual", "schedule_type": "manual", "sched_enabled": "1",
                    "master_controller": CONTROLLER},
         },
