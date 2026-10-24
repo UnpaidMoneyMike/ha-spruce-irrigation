@@ -108,6 +108,10 @@ function planCard(c) {
   };
 }
 
+function rainChart(c, title, period, days) {
+  return c.stats.rain ? waterChart(title, [{ entity: c.stats.rain, name: "Rain" }], period, days) : null;
+}
+
 function zoneNames(hass, c) {
   const names = {};
   for (const z of byNumber(c.zones)) names[z] = shortName(hass, c.zones[z].valve, c.name, `Zone ${z}`);
@@ -154,8 +158,8 @@ function overviewView(hass, c, zones, schedules) {
   }
   if (c.stats.total) {
     sections.push(section([heading("Water used", "mdi:water"),
-      waterChart("Last 30 days", [{ entity: c.stats.total, name: "Water" },
-        ...(c.stats.rain ? [{ entity: c.stats.rain, name: "Rain" }] : [])], "day", 30)], 2));
+      waterChart("Last 30 days", [{ entity: c.stats.total, name: "Water" }], "day", 30),
+      rainChart(c, "Rain, last 30 days", "day", 30)], 2));
   }
   const unavailable = ["unavailable", "unknown", undefined];
   const sensors = Object.values(c.sensors).filter((s) => !unavailable.includes(hass.states[s.moisture]?.state));
@@ -245,16 +249,19 @@ function historyView(c, zones) {
   return {
     type: "sections", title: "History", path: "history", icon: "mdi:chart-bar", max_columns: 4,
     sections: [
-      c.stats.rain ? section([heading("Rain and watering", "mdi:weather-pouring"),
-        waterChart("Rain and water by zone per day, last 30 days",
-          [{ entity: c.stats.rain, name: "Rain" }, ...zoneSeries(c.stats.zones)], "day", 30),
+      // Rain (mm) and water (L) can't share a chart's axis: one chart each, same days, one above the other
+      c.stats.rain ? section([heading("Weather and watering, last 30 days", "mdi:weather-pouring"),
+        rainChart(c, "Rain", "day", 30),
         c.stats.temperature ? {
-          type: "statistics-graph", title: "Temperature, last 30 days", period: "day", days_to_show: 30,
+          type: "statistics-graph", title: "Temperature (low and high)", period: "day", days_to_show: 30,
           entities: [{ entity: c.stats.temperature, name: "Temperature" }], stat_types: ["min", "max"],
           chart_type: "line", grid_options: { columns: "full" },
         } : null,
-        c.stats.total ? waterChart("Rain and water per month, last 12 months",
-          [{ entity: c.stats.rain, name: "Rain" }, { entity: c.stats.total, name: "Water" }], "month", 365) : null,
+        waterChart("Water by zone", zoneSeries(c.stats.zones), "day", 30),
+      ], 4) : null,
+      c.stats.rain ? section([heading("Rain and watering, last 12 months", "mdi:weather-pouring"),
+        rainChart(c, "Rain per month", "month", 365),
+        c.stats.total ? waterChart("Water per month", [{ entity: c.stats.total, name: "Water" }], "month", 365) : null,
       ], 4) : null,
       c.stats.total ? section([heading("Total water", "mdi:water"),
         waterChart("Per month, last 2 years", [{ entity: c.stats.total, name: "Water" }], "month", 730)], 4) : null,
