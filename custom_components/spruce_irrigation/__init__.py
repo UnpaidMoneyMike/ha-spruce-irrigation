@@ -52,6 +52,7 @@ class SpruceRuntime:
     status: SpruceStatusCoordinator
     history: SpruceHistoryCoordinator
     run_minutes: dict[int, float] = field(default_factory=dict)   # per-zone manual run time (number entities)
+    device_id: str | None = None   # the controller's device registry id (moisture sensor devices link to it)
 
     def optimistic(self, zone: int | None, change: dict | None) -> None:
         """Show a command's effect straight away (Spruce's cloud takes a few seconds to catch up), then confirm it
@@ -102,10 +103,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> bo
     await status.async_config_entry_first_refresh()
     entry.runtime_data = SpruceRuntime(api, controller, status, history)
 
-    dr.async_get(hass).async_get_or_create(
+    entry.runtime_data.device_id = dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, controller)}, manufacturer="Plaid Systems (Spruce)",
         name=history.data.name, model=history.data.model, sw_version=history.data.firmware,
-        serial_number=history.data.serial, configuration_url="https://app.spruceirrigation.com/")
+        serial_number=history.data.serial, configuration_url="https://app.spruceirrigation.com/").id
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Water history into long-term statistics: everything once, then the last week after each history update

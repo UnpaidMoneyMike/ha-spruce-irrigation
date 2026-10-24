@@ -6,6 +6,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpda
 
 from .const import DOMAIN, MANUFACTURER
 
+# Home Assistant 2026.8+ links a device to its parent by device id (via_device, by identifier, ends in 2027.8)
+VIA_DEVICE_ID = "via_device_id" in DeviceInfo.__annotations__
+
 
 class SpruceEntity(CoordinatorEntity[DataUpdateCoordinator]):
     """An entity of the Spruce controller."""
@@ -51,9 +54,13 @@ class SpruceMoistureEntity(SpruceEntity):
         info = coordinator.data.sensors.get(sensor_id, {})
         zone = next((z for z in entry.runtime_data.history.data.zones.values() if z.sensor_id == sensor_id), None)
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, sensor_id)}, via_device=(DOMAIN, self.controller), manufacturer=MANUFACTURER,
+            identifiers={(DOMAIN, sensor_id)}, manufacturer=MANUFACTURER,
             model="Spruce moisture sensor", name=info.get("name") or f"Spruce sensor {sensor_id[-4:]}",
             suggested_area=zone.name if zone else None)
+        if VIA_DEVICE_ID and self.rt.device_id:
+            self._attr_device_info["via_device_id"] = self.rt.device_id
+        else:
+            self._attr_device_info["via_device"] = (DOMAIN, self.controller)
 
     @property
     def reading(self) -> dict:
