@@ -34,7 +34,10 @@ A ready-made dashboard comes with the integration: Settings → Dashboards → *
 *Community dashboards* pick **Spruce Irrigation** (Home Assistant 2026.5 or later). It has Overview, Zones,
 Schedules, History and Diagnostics views, built from your controller's entities and water statistics each time
 it opens, so new zones, schedules and sensors appear by themselves. To change it by hand, open the dashboard →
-✏ → **Take control**. On older Home Assistant versions, create an empty dashboard, open its raw configuration
+✏ → **Take control**. After installing or updating the integration and restarting, reload Home Assistant in each browser
+and in the companion app (app: Settings → Companion app → Troubleshooting → Reset frontend cache, or close
+and reopen it); a page opened before the restart shows *Timeout waiting for strategy element
+ll-strategy-dashboard-spruce-irrigation*. On older Home Assistant versions, create an empty dashboard, open its raw configuration
 editor and enter:
 
 ```yaml
