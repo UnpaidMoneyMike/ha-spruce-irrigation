@@ -15,6 +15,7 @@ jobs:
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
+    if: ${{ !github.event.repository.private }}   # the HACS validator only checks public repositories
     runs-on: ubuntu-latest
     steps:
       - uses: hacs/action@main

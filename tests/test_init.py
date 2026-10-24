@@ -13,8 +13,14 @@ from custom_components.spruce_irrigation.const import CONF_API_KEY, CONF_CONTROL
 from .conftest import CONTROLLER
 
 
+@pytest.fixture(autouse=True)
+def auto_enable_custom_integrations(recorder_mock, enable_custom_integrations):
+    """The recorder (for the water statistics) has to start before Home Assistant does."""
+    yield
+
+
 @pytest.fixture
-async def entry(recorder_mock, hass: HomeAssistant, mock_api) -> MockConfigEntry:
+async def entry(hass: HomeAssistant, mock_api) -> MockConfigEntry:
     entry = MockConfigEntry(domain=DOMAIN, unique_id=CONTROLLER, title="Test Spruce",
                             data={CONF_API_KEY: "k", CONF_CONTROLLER: CONTROLLER})
     entry.add_to_hass(hass)
