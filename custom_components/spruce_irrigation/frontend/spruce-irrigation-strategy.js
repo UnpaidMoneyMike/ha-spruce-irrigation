@@ -257,21 +257,30 @@ class SpruceIrrigationDashboardStrategy extends HTMLElement {
   }
 }
 
-// Some other add-ons replace the page's custom element registry while the page loads, dropping elements
-// defined before them; check again for a while and define the strategy again if it went missing.
+// Define the strategy only once Home Assistant's app has started. On browsers without scoped custom element
+// registries (e.g. the Android app's WebView) the app installs a polyfill that replaces window.customElements;
+// anything defined before that is lost, and the polyfill then refuses the same name a second time.
 const TAG = "ll-strategy-dashboard-spruce-irrigation";
 const register = () => {
+  if (!customElements.get("home-assistant")) return false;   // the app (and its registry) isn't up yet
   if (!customElements.get(TAG)) {
-    try {
-      customElements.define(TAG, class extends SpruceIrrigationDashboardStrategy {});
-    } catch (err) {
-      // already defined under this name
-    }
+    customElements.define(TAG, class extends SpruceIrrigationDashboardStrategy {});
   }
+  return true;
 };
-register();
-for (const ms of [0, 50, 200, 500, 1000, 2000, 3000, 4000, 6000, 10000]) setTimeout(register, ms);
-window.addEventListener("load", register);
+if (!register()) {
+  const started = Date.now();
+  const timer = setInterval(() => {
+    let done = false;
+    try {
+      done = register();
+    } catch (err) {
+      done = true;
+      console.error("Spruce Irrigation dashboard:", err);
+    }
+    if (done || Date.now() - started > 60000) clearInterval(timer);
+  }, 20);
+}
 
 window.customStrategies = window.customStrategies || [];
 if (!window.customStrategies.some((s) => s.type === "spruce-irrigation")) {
