@@ -9,10 +9,11 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import HassJob, HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import ConfigType
 
 from .api import SpruceApi, SpruceError
@@ -44,6 +45,21 @@ class SpruceRuntime:
     status: SpruceStatusCoordinator
     history: SpruceHistoryCoordinator
     run_minutes: dict[int, float] = field(default_factory=dict)   # per-zone manual run time (number entities)
+
+    def optimistic(self, zone: int | None, change: dict | None) -> None:
+        """Show a command's effect straight away (Spruce's cloud takes a few seconds to catch up), then confirm it
+        with refreshes 5 and 20 seconds later. zone None = every zone."""
+        if change is not None and self.status.data:
+            zones = self.status.data.zones
+            for z in ([zone] if zone is not None else list(zones)):
+                zones[z] = {**zones.get(z, {}), **change}
+                self.status.hold(z, change)
+            self.status.async_update_listeners()
+        for delay in (5, 20):
+            async_call_later(self.status.hass, delay, HassJob(self._refresh, cancel_on_shutdown=True))
+
+    async def _refresh(self, _now) -> None:
+        await self.status.async_request_refresh()
 
 
 type SpruceConfigEntry = ConfigEntry[SpruceRuntime]
@@ -130,7 +146,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 return
         except SpruceError as err:
             raise HomeAssistantError(str(err)) from err
-        await rt.status.async_request_refresh()
+        rt.optimistic(None, {"on": False} if call.service == SERVICE_STOP else None)
         if call.service in (SERVICE_HIBERNATE, SERVICE_RUN_SCHEDULE, SERVICE_STOP_SCHEDULE):
             await rt.history.async_request_refresh()
 

@@ -20,6 +20,12 @@ def auto_enable_custom_integrations(recorder_mock, enable_custom_integrations):
 
 
 @pytest.fixture
+def expected_lingering_timers() -> bool:
+    """Commands schedule two confirming refreshes a few seconds later."""
+    return True
+
+
+@pytest.fixture
 async def entry(hass: HomeAssistant, mock_api) -> MockConfigEntry:
     entry = MockConfigEntry(domain=DOMAIN, unique_id=CONTROLLER, title="Test Spruce",
                             data={CONF_API_KEY: "k", CONF_CONTROLLER: CONTROLLER})

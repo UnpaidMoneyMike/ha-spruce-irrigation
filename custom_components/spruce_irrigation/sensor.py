@@ -86,7 +86,7 @@ CONTROLLER_SENSORS = (
                             native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT, entity_category=EntityCategory.DIAGNOSTIC,
                             entity_registry_enabled_default=False, value_fn=lambda rt: rt.history.data.network.get("signal")),
     SpruceSensorDescription(key="last_seen", translation_key="last_seen", device_class=SensorDeviceClass.TIMESTAMP,
-                            entity_category=EntityCategory.DIAGNOSTIC, value_fn=lambda rt: rt.status.data.last_seen, status=True),
+                            entity_category=EntityCategory.DIAGNOSTIC, entity_registry_enabled_default=False, value_fn=lambda rt: rt.status.data.last_seen, status=True),
 )
 
 ZONE_SENSORS = (

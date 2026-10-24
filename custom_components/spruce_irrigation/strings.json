@@ -8,7 +8,7 @@
           "api_key": "API key"
         },
         "data_description": {
-          "api_key": "Gives full access to your Spruce account; Home Assistant stores it encrypted."
+          "api_key": "Gives full access to your Spruce account; Home Assistant keeps it in its configuration, like other integrations' keys."
         }
       },
       "controller": {
@@ -128,7 +128,7 @@
         "name": "Wi-Fi signal"
       },
       "last_seen": {
-        "name": "Last seen"
+        "name": "Last status message"
       },
       "zone_water_today": {
         "name": "{zone} water today"

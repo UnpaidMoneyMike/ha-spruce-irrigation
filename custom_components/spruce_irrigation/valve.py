@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .api import SpruceError
 from .const import CONF_DEFAULT_RUN_MINUTES, DEFAULT_RUN_MINUTES, SERVICE_RUN_ZONE, SERVICE_STOP_ZONE
@@ -65,11 +66,11 @@ class SpruceValve(SpruceZoneEntity, ValveEntity):
             await self.rt.api.zone_on(self.controller, self.zone, int(minutes * 60))
         except SpruceError as err:
             raise HomeAssistantError(f"Couldn't start {self.zone_name}: {err}") from err
-        await self.coordinator.async_request_refresh()
+        self.rt.optimistic(self.zone, {"on": True, "started": dt_util.utcnow(), "duration": int(minutes * 60), "schedule_id": 0})
 
     async def async_close_valve(self) -> None:
         try:
             await self.rt.api.zone_off(self.controller, self.zone)
         except SpruceError as err:
             raise HomeAssistantError(f"Couldn't stop {self.zone_name}: {err}") from err
-        await self.coordinator.async_request_refresh()
+        self.rt.optimistic(self.zone, {"on": False})

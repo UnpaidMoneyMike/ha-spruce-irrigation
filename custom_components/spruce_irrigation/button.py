@@ -19,12 +19,12 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddC
 
 
 class _Button(SpruceEntity, ButtonEntity):
-    async def _do(self, action) -> None:
+    async def _do(self, action, all_off: bool = False) -> None:
         try:
             await action
         except SpruceError as err:
             raise HomeAssistantError(str(err)) from err
-        await self.rt.status.async_request_refresh()
+        self.rt.optimistic(None, {"on": False} if all_off else None)
 
 
 class SpruceStop(_Button):
@@ -35,7 +35,7 @@ class SpruceStop(_Button):
         super().__init__(entry, entry.runtime_data.status, "stop")
 
     async def async_press(self) -> None:
-        await self._do(self.rt.api.stop(self.controller))
+        await self._do(self.rt.api.stop(self.controller), all_off=True)
 
 
 class SprucePair(_Button):

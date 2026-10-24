@@ -84,6 +84,11 @@ class SpruceStatusCoordinator(DataUpdateCoordinator[StatusData]):
         super().__init__(hass, _LOGGER, config_entry=entry, name=f"{DOMAIN} status",
                          update_interval=timedelta(seconds=entry.options.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL)))
         self.api, self.controller = api, controller
+        self.overrides: dict[int, tuple[dict, datetime]] = {}   # zone -> (state just commanded, until when)
+
+    def hold(self, zone: int, change: dict, seconds: int = 30) -> None:
+        """Keep showing a commanded zone state until Spruce's cloud reports it (it lags a few seconds)."""
+        self.overrides[zone] = (change, dt_util.utcnow() + timedelta(seconds=seconds))
 
     async def _async_update_data(self) -> StatusData:
         try:
@@ -109,6 +114,12 @@ class SpruceStatusCoordinator(DataUpdateCoordinator[StatusData]):
                 "duration": z.get("duration") or 0,
                 "schedule_id": z.get("schedule_id"),
             }
+        now = dt_util.utcnow()
+        for zone, (change, until) in list(self.overrides.items()):
+            if now >= until or zones.get(zone, {}).get("on") == change.get("on"):
+                del self.overrides[zone]          # Spruce has caught up (or it's taking too long)
+            else:
+                zones[zone] = {**zones.get(zone, {}), **change}
         seen = controller.get("epoch_time")
         return StatusData(
             zones=zones, run=run,
