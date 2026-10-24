@@ -167,6 +167,12 @@ async def test_schedule_controls(hass: HomeAssistant, entry, mock_api) -> None:
                                    {"schedule": "Morning", "zone": "Garden Beds", "watering_percent": 120}, blocking=True)
     mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"duration_scaling": "120"}, 2)
 
+    rain = reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_schedule_11_rain_threshold")
+    assert hass.states.get(rain).state == "3.8"                   # 0.15 in, shown in mm
+    assert hass.states.get(rain).attributes["unit_of_measurement"] == "mm"
+    await hass.services.async_call("number", "set_value", {"entity_id": rain, "value": 5}, blocking=True)
+    mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"rain_delay_inches": "0.197"}, None)
+
     freeze_temp = reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_freeze_temperature")
     await hass.services.async_call("number", "set_value", {"entity_id": freeze_temp, "value": 1}, blocking=True)
     mock_api.save_controller_settings.assert_awaited_with(CONTROLLER, {"freeze_temperature": "34"})   # 1 °C = 33.8 °F

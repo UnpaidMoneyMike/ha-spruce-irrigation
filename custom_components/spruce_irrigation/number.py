@@ -3,20 +3,24 @@ schedule's rain-skip threshold, and the controller's freeze-skip temperature (bo
 from __future__ import annotations
 
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode, RestoreNumber
-from homeassistant.const import EntityCategory, UnitOfLength, UnitOfTemperature, UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfPrecipitationDepth, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from .api import SpruceError
 from .const import CONF_DEFAULT_RUN_MINUTES, DEFAULT_RUN_MINUTES
 from .entity import SpruceEntity, SpruceScheduleEntity, SpruceZoneEntity, watering_schedules
 
+MM_PER_INCH = 25.4
+
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     rt = entry.runtime_data
     entities: list[NumberEntity] = [SpruceRunTime(entry, z) for z, zone in rt.history.data.zones.items() if zone.enabled]
-    entities += [SpruceRainThreshold(entry, sid) for sid in watering_schedules(entry)]
+    metric = hass.config.units is not US_CUSTOMARY_SYSTEM
+    entities += [SpruceRainThreshold(entry, sid, metric) for sid in watering_schedules(entry)]
     entities.append(SpruceFreezeTemperature(entry))
     async_add_entities(entities)
 
@@ -48,27 +52,35 @@ class SpruceRunTime(SpruceZoneEntity, RestoreNumber):
 
 
 class SpruceRainThreshold(SpruceScheduleEntity, NumberEntity):
-    """Forecast rain (inches) that makes the schedule skip watering, when its rain skip is on."""
+    """Forecast rain that makes the schedule skip watering, when its rain skip is on. Spruce keeps it in inches;
+    with Home Assistant's metric units it's shown and set in millimetres."""
 
     _attr_translation_key = "schedule_rain_threshold"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_device_class = NumberDeviceClass.PRECIPITATION
-    _attr_native_unit_of_measurement = UnitOfLength.INCHES
-    _attr_native_min_value = 0
-    _attr_native_max_value = 1
-    _attr_native_step = 0.05
     _attr_mode = NumberMode.BOX
 
-    def __init__(self, entry, schedule_id: int) -> None:
+    def __init__(self, entry, schedule_id: int, metric: bool = True) -> None:
         super().__init__(entry, schedule_id, "rain_threshold")
+        self._mm = metric
+        if metric:
+            self._attr_native_unit_of_measurement = UnitOfPrecipitationDepth.MILLIMETERS
+            self._attr_native_min_value, self._attr_native_max_value, self._attr_native_step = 0.5, 25, 0.5
+        else:
+            self._attr_native_unit_of_measurement = UnitOfPrecipitationDepth.INCHES
+            self._attr_native_min_value, self._attr_native_max_value, self._attr_native_step = 0.05, 1, 0.05
 
     @property
     def native_value(self) -> float | None:
-        return self.schedule.get("rain_inches")
+        inches = self.schedule.get("rain_inches")
+        if inches is None or not self._mm:
+            return inches
+        return round(inches * MM_PER_INCH, 1)
 
     async def async_set_native_value(self, value: float) -> None:
-        await self.rt.async_set_schedule(self.schedule_id, {"rain_delay_inches": f"{value:.2f}"},
-                                         local={"rain_inches": round(value, 2)})
+        inches = round(value / MM_PER_INCH if self._mm else value, 3)
+        await self.rt.async_set_schedule(self.schedule_id, {"rain_delay_inches": f"{inches:g}"},
+                                         local={"rain_inches": inches})
 
 
 class SpruceFreezeTemperature(SpruceEntity, NumberEntity):
