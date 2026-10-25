@@ -383,6 +383,15 @@
       },
       "flow_rate": {
         "name": "Flow rate"
+      },
+      "water_week": {
+        "name": "Water last 7 days"
+      },
+      "rain_week": {
+        "name": "Rain last 7 days"
+      },
+      "week_plan": {
+        "name": "Watering days next 7 days"
       }
     },
     "time": {

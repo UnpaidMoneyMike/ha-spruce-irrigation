@@ -39,6 +39,7 @@ from .const import (
 from .heads import design
 
 _LOGGER = logging.getLogger(__name__)
+WEEKS_KEPT = 14                 # days of water and rain kept for this week vs last week
 FLOW_RUNS_FOR_USUAL = 40        # a zone's usual flow is the median of its last working runs
 
 
@@ -95,6 +96,7 @@ class HistoryData:
     network: dict[str, Any] = field(default_factory=dict)
     baseline: dict[int, dict] = field(default_factory=dict)            # Spruce's current baseline: zone -> {id, lpm, at}
     forecast: dict[str, list] = field(default_factory=dict)            # WeatherKit: {daily: [...], hourly: [...]}
+    rain_daily: dict[date, float] = field(default_factory=dict)        # recorded rain, mm per day (last 2 weeks)
     climate_rules: list[int] = field(default_factory=list)              # climate adjust: 12 monthly percentages
 
 
@@ -166,7 +168,7 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
         try:
             settings = await self.api.controller_settings(self.controller)
             app_settings = await self.api.settings()
-            since = min(today.replace(day=1), today - timedelta(days=HISTORY_DAYS))
+            since = min(today.replace(day=1), today - timedelta(days=WEEKS_KEPT))
             water = await self.api.water_summary(self.controller, since, today + timedelta(days=1))
             runs = await self.api.gpm_data(self.controller, today - timedelta(days=365), today + timedelta(days=1))
             try:
@@ -185,6 +187,11 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
                 forecast = await self.api.forecast(self.controller)
             except SpruceError:
                 forecast = {}
+            try:
+                rain = await self.api.weather_history(self.controller, today - timedelta(days=WEEKS_KEPT),
+                                                      today + timedelta(days=1))
+            except SpruceError:
+                rain = []
             try:
                 await self._fire_events()
             except SpruceError as err:   # the activity log is slow; it shouldn't hold up the rest
@@ -216,6 +223,9 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
         data.concurrent_zones = str(controller_app.get("concurrent_zones_enabled")) == "1"
         rules = [_int(v) for v in str(controller_app.get("climate_adjust_rules") or "").split(",")]
         data.climate_rules = rules if len(rules) == 12 and None not in rules else []
+        for row in rain if isinstance(rain, list) else []:
+            if _is_date(str(row.get("ymd"))) and _float(row.get("precip_in")) is not None:
+                data.rain_daily[date.fromisoformat(row["ymd"])] = round(_float(row["precip_in"]) * MM_PER_INCH, 1)
         if isinstance(forecast, dict):
             data.forecast = {part: (forecast.get(part) or {}).get("data") or [] for part in ("daily", "hourly")
                              if isinstance(forecast.get(part), dict)}

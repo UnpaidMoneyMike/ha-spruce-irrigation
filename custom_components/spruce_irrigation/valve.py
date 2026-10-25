@@ -55,6 +55,9 @@ class SpruceValve(SpruceZoneEntity, ValveEntity):
             attrs["schedule"] = self.history.schedules.get(s.get("schedule_id"), {}).get("name", "manual")
         if z:
             attrs.update(nozzle=z.nozzle, landscape=z.landscape, soil=z.soil)
+            place = next((g["name"] for g in self.history.zone_groups.values() if self.zone in g["zones"]), None)
+            if place:   # its zone group ("Place" in the Spruce app); the dashboard groups zones by it
+                attrs["place"] = place
         return attrs
 
     async def async_open_valve(self) -> None:

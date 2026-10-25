@@ -317,6 +317,59 @@ def _climate_attrs(rt) -> dict[str, Any]:
     return dict(zip(names, rt.history.data.climate_rules))
 
 
+def _litres(rt, first, last) -> float:
+    return sum(r["litres"] for r in rt.history.data.daily if first <= r["day"] <= last)
+
+
+def _water_week(rt) -> float:
+    today = dt_util.now().date()
+    return round(_litres(rt, today - timedelta(days=6), today), 1)
+
+
+def _water_week_attrs(rt) -> dict[str, Any]:
+    today = dt_util.now().date()
+    this, last = _water_week(rt), round(_litres(rt, today - timedelta(days=13), today - timedelta(days=7)), 1)
+    return {"last_week": round(rt.units.from_metric("volume", last), 1),
+            "change_percent": round((this - last) / last * 100) if last else None}
+
+
+def _rain_week(rt):
+    today = dt_util.now().date()
+    days = [v for d, v in rt.history.data.rain_daily.items() if today - timedelta(days=6) <= d <= today]
+    return round(sum(days), 1) if rt.history.data.rain_daily else None
+
+
+DAY_ORDER = ["water", "rain", "rain_sensor", "freeze", "wind", "hibernating", "not_needed", "none"]
+
+
+def _week_days(rt) -> list[dict[str, Any]]:
+    """The next 7 days, each with what Spruce plans: water (minutes) or why not."""
+    today = dt_util.now().date()
+    days = []
+    for n in range(7):
+        day = today + timedelta(days=n)
+        plans = [d for _, d in planned_days(rt) if d["day"] == day]
+        minutes = round(sum(d["seconds"] for d in plans) / 60)
+        outcome = "water" if minutes else min((d["reason"] or "not_needed" for d in plans), key=DAY_ORDER.index,
+                                               default="none")
+        days.append({"date": day.isoformat(), "weekday": day.strftime("%a"), "outcome": outcome, "minutes": minutes,
+                     "message": next((d["message"] for d in plans if d["message"]), None)})
+    return days
+
+
+WEEK_SENSORS = (
+    SpruceSensorDescription(key="water_week", translation_key="water_week", device_class=SensorDeviceClass.WATER,
+                            native_unit_of_measurement=UnitOfVolume.LITERS, quantity="volume", suggested_display_precision=0,
+                            value_fn=_water_week, attrs_fn=_water_week_attrs),
+    SpruceSensorDescription(key="rain_week", translation_key="rain_week", device_class=SensorDeviceClass.PRECIPITATION,
+                            native_unit_of_measurement="mm", quantity="rain", suggested_display_precision=1,
+                            icon="mdi:weather-pouring", value_fn=_rain_week),
+    SpruceSensorDescription(key="week_plan", translation_key="week_plan", icon="mdi:calendar-week",
+                            native_unit_of_measurement="days", value_fn=lambda rt: sum(d["outcome"] == "water" for d in _week_days(rt)),
+                            attrs_fn=lambda rt: {"days": _week_days(rt)}, status=True),
+)
+
+
 CLIMATE_SENSORS = (
     SpruceSensorDescription(key="climate_adjust", translation_key="climate_adjust", native_unit_of_measurement=PERCENTAGE,
                             icon="mdi:sun-thermometer", value_fn=_climate, attrs_fn=_climate_attrs),
@@ -363,7 +416,7 @@ BASELINE_ZONE_SENSORS = (
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     rt = entry.runtime_data
     entities: list[SensorEntity] = [SpruceControllerSensor(entry, d)
-                                    for d in CONTROLLER_SENSORS + BASELINE_CONTROLLER_SENSORS + CLIMATE_SENSORS]
+                                    for d in CONTROLLER_SENSORS + BASELINE_CONTROLLER_SENSORS + CLIMATE_SENSORS + WEEK_SENSORS]
     for z, zone in rt.history.data.zones.items():
         if zone.enabled:
             entities += [SpruceZoneSensor(entry, z, d) for d in ZONE_SENSORS + BASELINE_ZONE_SENSORS + PLAN_ZONE_SENSORS]

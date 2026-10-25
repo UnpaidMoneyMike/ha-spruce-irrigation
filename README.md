@@ -47,8 +47,8 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 ### Dashboard
 
 A ready-made dashboard comes with the integration: Settings → Dashboards → **Add dashboard** → under
-*Community dashboards* pick **Spruce Irrigation** (Home Assistant 2026.5 or later). It has Overview, Zones,
-Schedules, History, Flow health and Diagnostics views, built from your controller's entities and water statistics each time
+*Community dashboards* pick **Spruce Irrigation** (Home Assistant 2026.5 or later). It has **Today** (alerts, status and next watering, quick actions,
+the next 7 days, water and rain this week), **Zones** (grouped by place), **Plan**, **Water** and **Health** views, built from your controller's entities and water statistics each time
 it opens, so new zones, schedules and sensors appear by themselves. To change it by hand, open the dashboard →
 ✏ → **Take control**. After installing or updating the integration and restarting, reload Home Assistant in each browser
 and in the companion app (app: Settings → Companion app → Troubleshooting → Reset frontend cache, or close

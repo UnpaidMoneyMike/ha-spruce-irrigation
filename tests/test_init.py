@@ -493,3 +493,12 @@ async def test_instant_updates_option(hass: HomeAssistant, mock_api) -> None:
         assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done(wait_background_tasks=True)
     await async_wait_recording_done(hass)
+
+
+async def test_week_sensors(hass: HomeAssistant, entry) -> None:
+    week = _sensor(hass, "water_week")
+    assert float(week.state) == pytest.approx(90 * 3.785411784, abs=0.5)   # today 80 gal + yesterday 10 gal
+    assert float(_sensor(hass, "rain_week").state) == pytest.approx(7.6, abs=0.1)   # yesterday 0.1 in + today 0.2 in
+    plan = _sensor(hass, "week_plan")
+    days = plan.attributes["days"]
+    assert len(days) == 7 and days[0]["outcome"] == "rain" and days[1]["outcome"] == "water" and days[1]["minutes"] == 20
