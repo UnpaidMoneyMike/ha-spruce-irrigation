@@ -523,3 +523,15 @@ async def test_flow_statistics(hass: HomeAssistant, entry) -> None:
     stats = await get_instance(hass).async_add_executor_job(
         statistics_during_period, hass, start, None, {one}, "day", None, {"mean", "min"})
     assert min(r["min"] for r in stats[one]) == 0.0           # the run that measured nothing shows as 0
+
+
+async def test_record_old_baselines(hass: HomeAssistant, entry) -> None:
+    """Two baselines on one day are kept apart by their time; one taken during a leak is never a reference."""
+    for time, flow, suspect in (("16:35", 7.1, False), ("21:17", 12.9, True)):
+        await hass.services.async_call(DOMAIN, "record_baseline", {
+            "date": "2019-12-17", "time": time, "flows": {"1": flow}, "unit": "gal/min", "suspect": suspect},
+            blocking=True)
+    history = _sensor(hass, "last_baselined").attributes["baselines"]
+    ids = [b["id"] for b in history]
+    assert "manual-2019-12-17T1635" in ids and "manual-2019-12-17T2117" in ids
+    assert next(b for b in history if b["id"] == "manual-2019-12-17T2117")["suspect"] is True

@@ -168,6 +168,13 @@ record_baseline:
     note:
       selector:
         text:
+    time:
+      selector:
+        time:
+    suspect:
+      default: false
+      selector:
+        boolean:
 review_baseline:
   fields:
     device_id: *device

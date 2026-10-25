@@ -99,15 +99,20 @@ class BaselineStore:
         self._save()
         return snapshot
 
-    def record(self, at: datetime, zones: dict[int, float], note: str | None = None) -> dict:
-        """Add an older baseline by hand (e.g. from paper). It goes into the history; it doesn't change what is
-        accepted, except for zones that have nothing accepted yet."""
-        snapshot = {"id": f"manual-{at.date().isoformat()}", "at": at.astimezone(timezone.utc).isoformat(), "source": "manual",
-                    "zones": {z: round(v, 3) for z, v in zones.items()}, "review": {}, "note": note}
+    def record(self, at: datetime, zones: dict[int, float], note: str | None = None, timed: bool = False,
+               suspect: bool = False) -> dict:
+        """Add an older baseline by hand (e.g. from paper or old screenshots). It goes into the history; it doesn't
+        change what is accepted, except for zones that have nothing accepted yet — and never when it is marked
+        suspect (taken while a pipe was leaking, a nozzle missing…)."""
+        stamp = at.strftime("%Y-%m-%dT%H%M") if timed else at.date().isoformat()
+        snapshot = {"id": f"manual-{stamp}", "at": at.astimezone(timezone.utc).isoformat(), "source": "manual",
+                    "zones": {z: round(v, 3) for z, v in zones.items()}, "review": {}, "note": note,
+                    "suspect": suspect}
         self.snapshots = [s for s in self.snapshots if s["id"] != snapshot["id"]] + [snapshot]
         self.snapshots.sort(key=lambda s: s["at"])
-        for zone, lpm in snapshot["zones"].items():
-            self.accepted.setdefault(zone, {"lpm": lpm, "id": snapshot["id"]})
+        if not suspect:
+            for zone, lpm in snapshot["zones"].items():
+                self.accepted.setdefault(zone, {"lpm": lpm, "id": snapshot["id"]})
         self._save()
         return snapshot
 

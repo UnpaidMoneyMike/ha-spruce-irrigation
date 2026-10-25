@@ -261,10 +261,11 @@ def _history_attrs(rt) -> dict[str, Any]:
         return {}
     return {"unit": rt.units.unit["flow"], "baselines": [
         {"id": snap["id"], "date": dt_util.as_local(datetime.fromisoformat(snap["at"])).date().isoformat(),
+         "suspect": snap.get("suspect", False),
          "source": snap["source"], "note": snap.get("note"),
          "zones": {_zone_name(rt, z): _flow(rt, v) for z, v in sorted(snap["zones"].items())},
          "review": {_zone_name(rt, z): v for z, v in sorted(snap["review"].items()) if v != "accepted"} or None}
-        for snap in reversed(rt.baselines.snapshots[-12:])]}
+        for snap in reversed(rt.baselines.snapshots[-20:])]}
 
 
 def _review_attrs(rt) -> dict[str, Any]:

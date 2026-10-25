@@ -384,10 +384,10 @@ function healthView(c, zones) {
   };
   const unit = checks.length ? `{{ state_attr('${c.zones[checks[0]].flow_check}', 'unit') }}` : "";
   const history = e.last_baselined ? md(
-    `{% set b = state_attr('${e.last_baselined}', 'baselines') or [] %}{% set cols = b[:4] %}`
+    `{% set b = state_attr('${e.last_baselined}', 'baselines') or [] %}{% set cols = b[:6] %}`
     + "{% if not cols %}No baselines recorded yet.{% else %}"
-    + `Flow in {{ state_attr('${e.last_baselined}', 'unit') }} · ✎ entered by hand · ⚠ waiting for review or kept at the previous value\n\n`
-    + "| Zone |{% for s in cols %} {{ s.date }}{% if s.source == 'manual' %} ✎{% endif %} |{% endfor %}"
+    + `Flow in {{ state_attr('${e.last_baselined}', 'unit') }} · ✎ entered by hand · 🚩 taken during a leak (not used as a reference) · ⚠ waiting for review or kept at the previous value\n\n`
+    + "| Zone |{% for s in cols %} {{ s.date }}{% if s.source == 'manual' %} ✎{% endif %}{% if s.suspect %} 🚩{% endif %} |{% endfor %}"
     + "{% if cols | length > 1 %} Change |{% endif %}\n"
     + "|---|{% for s in cols %}---|{% endfor %}{% if cols | length > 1 %}---|{% endif %}\n"
     + "{% for z in cols[0].zones %}| {{ z }} |{% for s in cols %} {{ s.zones.get(z, '–') }}"

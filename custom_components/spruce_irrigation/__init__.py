@@ -301,9 +301,10 @@ SCHEMAS = {
     SERVICE_IMPORT_HISTORY: vol.Schema({DEVICE: cv.string, vol.Optional("start_date"): cv.date}),
     SERVICE_RUN_BASELINE: vol.Schema({DEVICE: cv.string}),
     SERVICE_RECORD_BASELINE: vol.Schema({
-        DEVICE: cv.string, vol.Required("date"): cv.date,
+        DEVICE: cv.string, vol.Required("date"): cv.date, vol.Optional("time"): cv.time,
         vol.Required("flows"): vol.Schema({cv.string: vol.All(vol.Coerce(float), vol.Range(min=0, max=1000))}),
-        vol.Optional("unit"): vol.In(["L/min", "gal/min"]), vol.Optional("note"): cv.string}),
+        vol.Optional("unit"): vol.In(["L/min", "gal/min"]), vol.Optional("note"): cv.string,
+        vol.Optional("suspect", default=False): cv.boolean}),
     SERVICE_REVIEW_BASELINE: vol.Schema({DEVICE: cv.string, vol.Required("accept"): cv.boolean,
                                          vol.Optional("zones"): vol.All(cv.ensure_list, [cv.string])}),
     SERVICE_SET_ZONE_HEADS: vol.Schema({
@@ -420,7 +421,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 gallons = call.data.get("unit", "gal/min" if rt.units.unit["flow"] == "gal/min" else "L/min") == "gal/min"
                 flows = {_zone(rt, z): v * (LITRES_PER_GALLON if gallons else 1) for z, v in call.data["flows"].items()}
                 at = dt_util.start_of_local_day(call.data["date"])
-                rt.baselines.record(at, flows, call.data.get("note"))
+                if call.data.get("time"):
+                    at = at.replace(hour=call.data["time"].hour, minute=call.data["time"].minute)
+                rt.baselines.record(at, flows, call.data.get("note"), timed="time" in call.data,
+                                    suspect=call.data["suspect"])
                 rt.baselines_changed()
                 return
             elif call.service == SERVICE_REVIEW_BASELINE:

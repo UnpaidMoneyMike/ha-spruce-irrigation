@@ -681,6 +681,14 @@
         "note": {
           "name": "Note",
           "description": "Optional note kept with it."
+        },
+        "time": {
+          "name": "Time",
+          "description": "When on that day (lets two baselines on one day be kept apart)."
+        },
+        "suspect": {
+          "name": "Taken during a leak",
+          "description": "Keep it in the history but never use it as a reference (a leak, a missing nozzle, a broken drip line at the time)."
         }
       }
     },
