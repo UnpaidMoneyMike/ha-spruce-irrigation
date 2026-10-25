@@ -323,6 +323,15 @@ CLIMATE_SENSORS = (
 )
 
 
+FLOW_RATE = SpruceSensorDescription(
+    key="flow_rate", translation_key="flow_rate", device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
+    native_unit_of_measurement=LPM, suggested_display_precision=1, quantity="flow", state_class=SensorStateClass.MEASUREMENT,
+    value_fn=lambda rt: rt.live.flow_lpm if rt.live else None,
+    attrs_fn=lambda rt: {"average_10_s": rt.units.from_metric("flow", rt.live.flow_avg_lpm) if rt.live and rt.live.flow_avg_lpm is not None else None,
+                         "read_at": rt.live.flow_at.isoformat() if rt.live and rt.live.flow_at else None},
+    status=True)
+
+
 PLAN_ZONE_SENSORS = (
     SpruceSensorDescription(key="next_watering", translation_key="zone_next_watering", device_class=SensorDeviceClass.TIMESTAMP,
                             icon="mdi:calendar-clock", value_fn=_zone_next, attrs_fn=_zone_next_attrs),
@@ -361,6 +370,8 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddC
     for sid in rt.status.data.sensors:
         entities += [SpruceMoistureSensor(entry, sid, d) for d in MOISTURE_SENSORS]
     entities += [SpruceCostSensor(entry, key) for key in ("water_cost_today", "water_cost_month")]
+    if rt.history.data.flow_meter:
+        entities.append(SpruceControllerSensor(entry, FLOW_RATE))
     for did in rt.history.data.outlets:
         entities += [SpruceOutletSensor(entry, did, d) for d in OUTLET_SENSORS]
     async_add_entities(entities)

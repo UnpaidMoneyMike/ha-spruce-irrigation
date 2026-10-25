@@ -20,6 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 BASE_URL = "https://api.spruceirrigation.com/"
 TIMEOUT = aiohttp.ClientTimeout(total=60)
+STREAM_TIMEOUT = aiohttp.ClientTimeout(total=90)
 RETRIES = 3
 
 
@@ -298,6 +299,54 @@ class SpruceApi:
         """Delete a schedule from the account, then from the controller (as the app does)."""
         await self._request("DELETE", f"app/api/schedule/{schedule_id}")
         await self._spruceset(controller, f"delete,{schedule_id}")
+
+    # ---- live streams (server-sent events read as a long-poll) ----------------------------------------------------
+
+    async def _stream(self, path: str, params: dict[str, Any]) -> str:
+        try:
+            async with self._session.get(BASE_URL + path, params=params, headers={"Authorization": self._key},
+                                         timeout=STREAM_TIMEOUT) as resp:
+                if resp.status in (401, 403):
+                    raise SpruceAuthError("Spruce refused the API key")
+                if resp.status >= 400:
+                    raise SpruceError(f"{path}: HTTP {resp.status}")
+                return await resp.text()
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise SpruceError(f"{path}: {err}") from err
+
+    async def zone_status_stream(self, controller: str) -> str:
+        """Waits for a zone change (or Spruce closing the stream with nothing new); the raw event text."""
+        return await self._stream("app/stream/zone-status-stream.php", {"devid": controller, "auth": self._key})
+
+    async def start_live_flow(self, controller: str, port: int) -> int:
+        """Start logging the flow meter every 2 s (the app's live logging); returns the log id."""
+        data = await self._request("POST", "app/api/live_log_flow", {"deviceid": controller, "port": port}) or {}
+        log_id = _int(data.get("live_log_id")) if isinstance(data, dict) else None
+        if not log_id:
+            raise SpruceError("Spruce didn't start live flow logging")
+        await self.keep_live_flow(controller, port, log_id)
+        return log_id
+
+    async def keep_live_flow(self, controller: str, port: int, log_id: int) -> None:
+        await self._spruceset(controller, f"flowlog,1,{port},{log_id}")
+
+    async def stop_live_flow(self, controller: str, port: int) -> None:
+        await self._spruceset(controller, f"flowlog,0,{port}")
+
+    async def live_flow(self, log_id: int) -> list[dict]:
+        """The live log's readings so far, oldest first: {gpm, elapsed_seconds, DTepoch}."""
+        text = await self._stream("app/stream/live-logging-flow.php", {"id": log_id})
+        points: list[dict] = []
+        for line in text.splitlines():
+            if not line.startswith("data:"):
+                continue
+            try:
+                data = _json(line[5:].strip())
+            except ValueError:
+                continue
+            if isinstance(data, dict):
+                points = [p for k, p in data.items() if str(k).isdigit() and isinstance(p, dict)] or points
+        return sorted(points, key=lambda p: p.get("DTepoch") or 0)
 
     # ---- flow baseline -------------------------------------------------------------------------------------------
 

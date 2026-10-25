@@ -1,0 +1,40 @@
+blueprint:
+  name: Spruce – skip watering after real rain
+  description: >-
+    Pauses Spruce's schedules until tomorrow when your own rain gauge measured more than a set amount today
+    (Spruce's rain skip only knows the forecast and recorded rain at its weather station).
+  domain: automation
+  source_url: https://github.com/UnpaidMoneyMike/ha-spruce-irrigation/blob/main/blueprints/automation/spruce_irrigation/skip_after_rain.yaml
+  input:
+    rain_today:
+      name: Rain today
+      description: A sensor with today's rain (mm or in, as you use).
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+    threshold:
+      name: Skip above
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 0.5
+    pause_button:
+      name: Pause button
+      description: The controller's "Pause schedules until tomorrow" button.
+      selector:
+        entity:
+          filter:
+            - integration: spruce_irrigation
+              domain: button
+trigger:
+  - trigger: numeric_state
+    entity_id: !input rain_today
+    above: !input threshold
+action:
+  - action: button.press
+    target:
+      entity_id: !input pause_button
+mode: single

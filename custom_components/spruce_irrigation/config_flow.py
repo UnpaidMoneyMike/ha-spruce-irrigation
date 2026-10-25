@@ -22,6 +22,7 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     EntitySelector,
     EntitySelectorConfig,
     NumberSelector,
@@ -41,6 +42,7 @@ from .const import (
     CONF_DEFAULT_RUN_MINUTES,
     CONF_FAULT_SHARE,
     CONF_HISTORY_INTERVAL,
+    CONF_INSTANT,
     CONF_REVIEW_TOLERANCE,
     CONF_STATUS_INTERVAL,
     DEFAULT_FAULT_SHARE,
@@ -184,8 +186,8 @@ class SpruceOptionsFlow(OptionsFlow):
 
     async def async_step_general(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            return self._save({k: float(v) if k in (CONF_FAULT_SHARE, CONF_REVIEW_TOLERANCE) else int(v)
-                               for k, v in user_input.items()})
+            return self._save({k: v if k == CONF_INSTANT else float(v) if k in (CONF_FAULT_SHARE, CONF_REVIEW_TOLERANCE)
+                               else int(v) for k, v in user_input.items()})
         o = self.config_entry.options
         box = lambda lo, hi, step=1, unit=None: NumberSelector(NumberSelectorConfig(  # noqa: E731
             min=lo, max=hi, step=step, mode=NumberSelectorMode.BOX, **({"unit_of_measurement": unit} if unit else {})))
@@ -195,6 +197,7 @@ class SpruceOptionsFlow(OptionsFlow):
             vol.Required(CONF_HISTORY_INTERVAL, default=o.get(CONF_HISTORY_INTERVAL, DEFAULT_HISTORY_INTERVAL)): box(300, 3600, 60, "s"),
             vol.Required(CONF_FAULT_SHARE, default=o.get(CONF_FAULT_SHARE, DEFAULT_FAULT_SHARE)): box(0.05, 0.9, 0.05),
             vol.Required(CONF_REVIEW_TOLERANCE, default=o.get(CONF_REVIEW_TOLERANCE, DEFAULT_REVIEW_TOLERANCE)): box(0.05, 1, 0.05),
+            vol.Required(CONF_INSTANT, default=o.get(CONF_INSTANT, False)): BooleanSelector(),
         }))
 
     async def async_step_units(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

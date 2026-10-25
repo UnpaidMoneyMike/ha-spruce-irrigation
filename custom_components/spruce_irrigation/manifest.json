@@ -4,6 +4,7 @@
   "after_dependencies": [
     "frontend",
     "http",
+    "logbook",
     "lovelace",
     "recorder",
     "repairs"
@@ -17,5 +18,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/UnpaidMoneyMike/ha-spruce-irrigation/issues",
   "requirements": [],
-  "version": "0.10.0"
+  "version": "1.0.0"
 }

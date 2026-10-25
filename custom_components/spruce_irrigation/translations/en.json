@@ -80,14 +80,16 @@
           "status_interval": "Live status refresh",
           "history_interval": "Water and flow history refresh",
           "fault_share": "Flow fault threshold",
-          "review_tolerance": "Baseline review tolerance"
+          "review_tolerance": "Baseline review tolerance",
+          "instant_updates": "Instant updates"
         },
         "data_description": {
           "default_run_minutes": "Used when a zone valve is opened without a run time (each zone also has its own Run time setting).",
           "status_interval": "How often to read which zones are running and the moisture sensors.",
           "history_interval": "How often to read water used, measured flow, settings and the activity log.",
           "fault_share": "A run measuring less than this share of the zone's usual flow is a flow fault (0.2 = 20%).",
-          "review_tolerance": "A new flow baseline that moves a zone more than this share from its design flow (or its last accepted baseline) waits for your review (0.25 = 25%)."
+          "review_tolerance": "A new flow baseline that moves a zone more than this share from its design flow (or its last accepted baseline) waits for your review (0.25 = 25%).",
+          "instant_updates": "Listen to Spruce's live zone status so valves change within seconds instead of at the next refresh. Keeps a connection to Spruce open; off by default."
         }
       },
       "units": {
@@ -228,6 +230,9 @@
       },
       "schedule_window": {
         "name": "{schedule} watering window"
+      },
+      "live_flow": {
+        "name": "Live flow"
       }
     },
     "button": {
@@ -375,6 +380,9 @@
       },
       "climate_adjust": {
         "name": "Climate adjust this month"
+      },
+      "flow_rate": {
+        "name": "Flow rate"
       }
     },
     "time": {
@@ -421,6 +429,24 @@
     "weather": {
       "forecast": {
         "name": "Forecast"
+      }
+    },
+    "event": {
+      "activity": {
+        "name": "Activity",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "zone_finished": "Zone finished",
+              "flow_alert": "Flow alert",
+              "schedule_summary": "Schedule summary",
+              "hibernate": "Hibernate",
+              "network": "Network",
+              "reset": "Reset",
+              "other": "Other"
+            }
+          }
+        }
       }
     }
   },

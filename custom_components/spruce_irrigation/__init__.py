@@ -24,9 +24,11 @@ from homeassistant.util import dt as dt_util
 
 from .api import SpruceApi, SpruceError
 from .baselines import BaselineStore
+from .live import Live
 from .const import (
     CONF_API_KEY,
     CONF_CONTROLLER,
+    CONF_INSTANT,
     DOMAIN,
     LITRES_PER_GALLON,
     SERVICE_HIBERNATE,
@@ -57,7 +59,7 @@ from .units import Units
 from .statistics import async_import_history, async_update_recent_statistics
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CALENDAR, Platform.NUMBER, Platform.SELECT, Platform.SENSOR,
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CALENDAR, Platform.EVENT, Platform.NUMBER, Platform.SELECT, Platform.SENSOR,
              Platform.SWITCH, Platform.TIME, Platform.VALVE, Platform.WEATHER]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 HISTORY_IMPORTED = "history_imported"
@@ -74,6 +76,7 @@ class SpruceRuntime:
     device_id: str | None = None   # the controller's device registry id (moisture sensor devices link to it)
     units: Units = field(default_factory=lambda: Units({}))
     baselines: BaselineStore | None = None
+    live: Live | None = None
 
     def baselines_changed(self) -> None:
         """After a baseline is recorded, accepted or kept: re-check the review notice and update the entities."""
@@ -180,6 +183,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> bo
     await history.async_config_entry_first_refresh()
     await status.async_config_entry_first_refresh()
     entry.runtime_data = SpruceRuntime(api, controller, status, history, units=Units(entry.options), baselines=baselines)
+    entry.runtime_data.live = Live(hass, entry.runtime_data)
 
     entry.runtime_data.device_id = dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, controller)}, manufacturer="Plaid Systems (Spruce)",
@@ -208,6 +212,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> bo
     if entry.data.get(HISTORY_IMPORTED) != HISTORY_VERSION:
         entry.async_create_background_task(hass, _first_import(hass, entry), "spruce history import")
     entry.async_on_unload(entry.add_update_listener(_options_updated))
+    if entry.options.get(CONF_INSTANT):
+        entry.runtime_data.live.start_stream(entry)
     return True
 
 
@@ -255,6 +261,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> N
 async def async_unload_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> bool:
     if entry.runtime_data.baselines:
         await entry.runtime_data.baselines.async_flush()
+    if entry.runtime_data.live:
+        await entry.runtime_data.live.async_shutdown()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 

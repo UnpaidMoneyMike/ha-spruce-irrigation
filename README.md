@@ -39,7 +39,9 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 | **Weather** | Spruce's recorded weather at the controller's location (Apple WeatherKit) imported alongside: daily rain `spruce_irrigation:<controller>_rain` (mm) and the day's low/high temperature `..._temperature` (°C, min/max). The dashboard's History page shows rain, temperature and water per zone for the same 30 days one above the other (a chart can't mix mm and litres), and rain and water per month |
 | **Forecast** | A **weather** entity with the forecast Spruce plans with (Apple WeatherKit at the controller): now, hourly and daily, on the dashboard's overview |
 | **Climate adjust** | This month's **climate adjust** %, all 12 months as attributes; change them with `set_climate_adjust` (one month or all twelve) |
-| **Events** | `spruce_irrigation_event` fired for each new Spruce activity-log entry (zone finished with gallons and gpm, flow alerts, schedule skips…) for automations |
+| **Events** | An **Activity** event entity (zone finished, flow alert, schedule summary…) and `spruce_irrigation_event` for each new Spruce activity-log entry, with Logbook lines |
+| **Live** | **Live flow** switch: the controller logs the flow meter every 2 s into a **flow rate** sensor (off by itself after 10 minutes). **Instant updates** option: listen to Spruce's live zone status so valves change within seconds (off by default) |
+| **Blueprints** | In `blueprints/automation/spruce_irrigation`: flow-alert notification, skip watering after real rain (your rain gauge), a reminder before the sprinklers run |
 | **Names** | Names come from the Spruce app. Rename a zone, schedule, sensor or the controller there (or add one) and the integration reloads itself within 15 minutes to pick it up; entity ids stay the same. Names you set in Home Assistant are kept |
 
 ### Dashboard
@@ -91,7 +93,7 @@ entry. If you change your Spruce password the key changes and Home Assistant wil
 
 ## Options
 
-- **General:** default zone run time, live status refresh (default 60 s), water/flow history refresh (default 15 min)
+- **General:** instant updates (off by default), default zone run time, live status refresh (default 60 s), water/flow history refresh (default 15 min)
   the flow-fault threshold (default: a run under 20% of the zone's usual flow) and the baseline review tolerance
   (default 25%).
 - **Units:** metric (default: L, L/min, mm, °C, km/h), US (gal, gal/min, in, °F, mph), or custom per quantity.

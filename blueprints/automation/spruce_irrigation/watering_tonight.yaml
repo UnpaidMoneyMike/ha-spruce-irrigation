@@ -1,0 +1,50 @@
+blueprint:
+  name: Spruce – tell me when the sprinklers will run
+  description: >-
+    A notification some minutes before Spruce's next planned watering, with the schedule and how long it runs.
+  domain: automation
+  source_url: https://github.com/UnpaidMoneyMike/ha-spruce-irrigation/blob/main/blueprints/automation/spruce_irrigation/watering_tonight.yaml
+  input:
+    next_watering:
+      name: Next watering
+      description: The controller's "Next watering" sensor.
+      selector:
+        entity:
+          filter:
+            - integration: spruce_irrigation
+              domain: sensor
+              device_class: timestamp
+    minutes_before:
+      name: Minutes before
+      default: 60
+      selector:
+        number:
+          min: 5
+          max: 720
+          unit_of_measurement: min
+    notify_device:
+      name: Phone
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+trigger_variables:
+  next_entity: !input next_watering
+  lead: !input minutes_before
+trigger:
+  - trigger: template
+    value_template: >-
+      {% set t = states(next_entity) %}
+      {{ t not in ['unknown', 'unavailable', 'none']
+         and now() >= as_datetime(t) - timedelta(minutes=lead | int)
+         and now() < as_datetime(t) }}
+action:
+  - domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: Sprinklers soon
+    message: >-
+      {% set a = state_attr(next_entity, 'schedule') %}
+      {{ a or 'A schedule' }} starts at {{ as_timestamp(states(next_entity)) | timestamp_custom('%-I:%M %p') }}
+      for {{ state_attr(next_entity, 'minutes') }} minutes.
+mode: single

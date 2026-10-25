@@ -158,7 +158,7 @@ out of scope for this integration until proven; tracked separately.
 | 0.8 ✅ | Schedules: create / delete, start mode + offset, days, watering window, per-zone mode / cycles / weekly limits; manual and basic schedule editing services |
 | 0.9 ✅ | Plan detail: per-zone reasons and water budget; projections; past day detail; sensor settings (threshold, polling, learn mode) |
 | 0.10 ✅ | Climate adjust; weather entity (the `chart_data` soil-water points and `sensor_data` history are left for later: their meaning isn't documented and the moisture sensors are mostly silent) |
-| 1.0 | Instant updates and live flow (stream), Logbook / event entities, blueprints, cost, diagnostics; quality pass for HACS default / core |
+| 1.0 ✅ | Instant updates and live flow (stream), Logbook / event entities, blueprints, cost, diagnostics; quality pass for HACS default / core |
 
 Each release: tests against the fake account for every new write (request body as in §6), then a live check
 against a real controller with the change reverted, as done for the write tests.

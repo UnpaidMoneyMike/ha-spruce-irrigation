@@ -32,6 +32,8 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddC
     if data.flow_meter:
         entities += [SpruceFlowSwitch(entry, d) for d in FLOW_SWITCHES]
     entities += [SpruceOutlet(entry, did) for did in data.outlets]
+    if data.flow_meter:
+        entities.append(SpruceLiveFlow(entry))
     async_add_entities(entities)
 
 
@@ -170,6 +172,30 @@ class SpruceWindow(SpruceScheduleEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._set(False)
+
+
+class SpruceLiveFlow(SpruceEntity, SwitchEntity):
+    """Live flow: the controller logs the flow meter every 2 s and the flow rate sensor follows it; off again by
+    itself after 10 minutes."""
+
+    _attr_translation_key = "live_flow"
+    _attr_icon = "mdi:waves-arrow-right"
+
+    def __init__(self, entry) -> None:
+        super().__init__(entry, entry.runtime_data.status, "live_flow")
+        self._entry = entry
+
+    @property
+    def is_on(self) -> bool:
+        return self.rt.live.flowing
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        self.rt.live.start_flow(self._entry)
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.rt.live.stop_flow()
+        self.async_write_ha_state()
 
 
 class SpruceZoneEnabled(SpruceEntity, SwitchEntity):

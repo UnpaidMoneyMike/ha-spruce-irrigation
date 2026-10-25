@@ -12,7 +12,7 @@ const CONTROLLER_KEYS = ["status", "active_zone", "watering_ends", "water_today"
   "flow_limit_high", "flow_limit_low", "flow_stop_on_high", "flow_pump_protect", "flow_leak_sustained",
   "flow_leak_burst", "pause_until_tomorrow", "water_cost_today", "water_cost_month", "next_watering",
   "watering_today", "plan", "run_baseline", "accept_baseline", "keep_previous_baseline", "last_baselined",
-  "baseline_review", "forecast", "climate_adjust"];
+  "baseline_review", "forecast", "climate_adjust", "live_flow", "flow_rate", "activity"];
 const SENSOR_KEYS = ["moisture", "temperature", "battery", "signal", "last_reading"];
 
 /** The integration's controllers, zones, schedules, moisture sensors and water statistics. */
@@ -147,6 +147,7 @@ function overviewView(hass, c, zones, schedules) {
       tile(e.status), tile(e.active_zone), tile(e.watering_ends), tile(e.online),
       planCard(c),
       tile(e.water_today), tile(e.water_month), tile(e.water_cost_month),
+      tile(e.activity, { name: "Latest activity", state_content: ["event_type", "message"] }),
       tile(e.hibernate), press(e.pause_until_tomorrow, "Skip scheduled watering until tomorrow?"), press(e.stop),
     ]),
     e.forecast ? section([heading("Forecast Spruce plans with", "mdi:weather-partly-rainy"),
@@ -347,6 +348,7 @@ function flowView(c, zones) {
     type: "sections", title: "Flow health", path: "flow", icon: "mdi:water-check", max_columns: 4,
     sections: [
       section([heading("Flow baseline", "mdi:chart-bell-curve"),
+        tile(e.live_flow, { name: "Live flow (10 min)" }), tile(e.flow_rate, { name: "Flow rate", state_content: ["state", "average_10_s"] }),
         tile(e.last_baselined, { name: "Last baseline" }), tile(e.baseline_review, { name: "Zones to review" }),
         press(e.run_baseline, "Run a flow baseline? Every enabled zone waters for about a minute (roughly 1 min 10 s per zone)."),
         press(e.accept_baseline, "Accept the new baseline for the zones waiting for review?"),

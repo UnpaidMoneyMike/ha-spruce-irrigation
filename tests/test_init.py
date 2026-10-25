@@ -1,7 +1,9 @@
 """Set-up, entities, control and services against the fake account."""
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -445,3 +447,49 @@ async def test_weather_and_climate_adjust(hass: HomeAssistant, entry, mock_api) 
     mock_api.save_controller_settings.assert_awaited_with(
         CONTROLLER, {"climate_adjust_rules": "100,100,85,80,60,50,50,60,70,80,90,100"})
     mock_api.refresh_settings.assert_awaited_with(CONTROLLER)
+
+
+async def test_activity_event(hass: HomeAssistant, entry) -> None:
+    activity = er.async_get(hass).async_get_entity_id("event", DOMAIN, f"{CONTROLLER}_activity")
+    hass.bus.async_fire(f"{DOMAIN}_event", {"controller_id": CONTROLLER, "type": "flow", "zone": 1,
+                                            "message": "Zone 1 flow 40% above baseline"})
+    await hass.async_block_till_done()
+    state = hass.states.get(activity)
+    assert state.attributes["event_type"] == "flow_alert"
+    assert state.attributes["zone"] == "Front Lawn" and "40%" in state.attributes["message"]
+
+
+async def test_live_flow(hass: HomeAssistant, entry, mock_api) -> None:
+    reg = er.async_get(hass)
+    switch = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_live_flow")
+    with patch("custom_components.spruce_irrigation.live.LIVE_FLOW_READ", 0.01):
+        await hass.services.async_call("switch", "turn_on", {"entity_id": switch}, blocking=True)
+        for _ in range(50):
+            await asyncio.sleep(0.02)
+            if _sensor(hass, "flow_rate").state not in ("unknown", "unavailable"):
+                break
+    mock_api.start_live_flow.assert_awaited_with(CONTROLLER, 101)
+    assert hass.states.get(switch).state == "on"
+    assert float(_sensor(hass, "flow_rate").state) == pytest.approx(4.2 * 3.785411784, abs=0.01)
+    await hass.services.async_call("switch", "turn_off", {"entity_id": switch}, blocking=True)
+    mock_api.stop_live_flow.assert_awaited_with(CONTROLLER, 101)
+    assert hass.states.get(switch).state == "off"
+
+
+async def test_instant_updates_option(hass: HomeAssistant, mock_api) -> None:
+    from custom_components.spruce_irrigation.const import CONF_INSTANT
+
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=CONTROLLER, title="Test Spruce",
+                            data={CONF_API_KEY: "k", CONF_CONTROLLER: CONTROLLER}, options={CONF_INSTANT: True})
+    entry.add_to_hass(hass)
+    mock_api.zone_status_stream.return_value = 'data: {"zone_data": {"1": {"zone_state": 1}}}' + chr(10)
+    with patch("custom_components.spruce_irrigation.live.STREAM_GAP", 0.01):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await asyncio.sleep(0.05)
+        assert mock_api.zone_status_stream.await_count >= 1
+        calls = mock_api.zone_status.await_count
+        await asyncio.sleep(0.1)
+        assert mock_api.zone_status.await_count >= calls   # a reported change reads the zone status
+        assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await async_wait_recording_done(hass)

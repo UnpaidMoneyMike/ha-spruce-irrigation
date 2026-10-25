@@ -1,0 +1,34 @@
+blueprint:
+  name: Spruce – tell me about flow alerts and leaks
+  description: >-
+    Sends a notification when Spruce logs a flow alert (high or low flow, a sustained or burst leak, pump protect).
+  domain: automation
+  source_url: https://github.com/UnpaidMoneyMike/ha-spruce-irrigation/blob/main/blueprints/automation/spruce_irrigation/flow_alert.yaml
+  input:
+    activity:
+      name: Spruce activity
+      description: The controller's Activity event entity.
+      selector:
+        entity:
+          filter:
+            - integration: spruce_irrigation
+              domain: event
+    notify_device:
+      name: Phone
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+trigger:
+  - trigger: state          # the event entity's state is the time of the latest event: changes with each one
+    entity_id: !input activity
+condition:
+  - condition: template
+    value_template: "{{ trigger.to_state.attributes.event_type == 'flow_alert' }}"
+action:
+  - domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: Spruce flow alert
+    message: "{{ trigger.to_state.attributes.message }}"
+mode: queued

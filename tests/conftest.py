@@ -102,6 +102,10 @@ def fake_api() -> AsyncMock:
         "2": {"id": "7", "zone": "2", "gpm": 2.0, "DTepoch": str(epoch - 86400 * 5)},
     }
     api.start_baseline.return_value = 8
+    api.start_live_flow.return_value = 3313
+    api.live_flow.return_value = [{"gpm": 0, "DTepoch": epoch - 4}, {"gpm": 4.0, "DTepoch": epoch - 2},
+                                  {"gpm": 4.2, "DTepoch": epoch}]
+    api.zone_status_stream.return_value = 'retry: 400' + chr(10) + 'data: {"error":false}' + chr(10)
     api.forecast.return_value = {
         "api": "weatherkit",
         "daily": {"data": [{"forecastStart": "2026-10-26T13:00:00Z", "conditionCode": "Rain", "temperatureMax": 25.0,
