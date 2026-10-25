@@ -84,6 +84,18 @@ class SpruceScheduleEntity(SpruceEntity):
         return super().available and self.schedule_id in self.rt.history.data.schedules
 
 
+def outlet_device_info(rt, device: str) -> DeviceInfo:
+    """A Zigbee outlet / repeater as its own device, linked to the controller."""
+    o = rt.history.data.outlets.get(device, {})
+    info = DeviceInfo(identifiers={(DOMAIN, device)}, name=o.get("name") or f"Outlet {device[-4:]}",
+                      manufacturer="Zigbee", model=o.get("model") or "Outlet", sw_version=o.get("firmware"))
+    if VIA_DEVICE_ID and rt.device_id:
+        info["via_device_id"] = rt.device_id
+    else:
+        info["via_device"] = (DOMAIN, rt.controller)
+    return info
+
+
 def watering_schedules(entry) -> list[int]:
     """Schedules with settings to show: everything but the manual one."""
     return [sid for sid, s in entry.runtime_data.history.data.schedules.items() if s.get("type") != "manual"]

@@ -44,6 +44,7 @@ class Zone:
     soil: str | None = None
     configured_gpm: float | None = None
     sensor_id: str | None = None
+    group: tuple[int, ...] = ()          # the zones of its zone group ("Place") incl. itself; () when not grouped
 
 
 @dataclass
@@ -65,8 +66,17 @@ class HistoryData:
     zones: dict[int, Zone] = field(default_factory=dict)
     schedules: dict[int, dict] = field(default_factory=dict)   # id -> {name, type, enabled, start_time}
     hibernating: bool = False
+    hibernate_until: date | None = None
     rain_skip_inches: float | None = None
     freeze_skip_f: float | None = None
+    wind_skip_mph: float | None = None
+    manual_max_minutes: float | None = None
+    pump_delay_seconds: float | None = None
+    concurrent_zones: bool = False
+    num_zones: int = 0
+    zone_groups: dict[int, dict] = field(default_factory=dict)        # group id -> {name, zones, sensor_zone}
+    flow_meter: dict[str, Any] = field(default_factory=dict)          # port 101's settings (empty: no flow meter)
+    outlets: dict[str, dict] = field(default_factory=dict)            # Zigbee outlet id -> {name, model, state…}
     water_today: dict[int, float] = field(default_factory=dict)        # litres per zone today (as Spruce counts)
     water_month: dict[int, float] = field(default_factory=dict)
     minutes_today: dict[int, float] = field(default_factory=dict)
@@ -148,6 +158,10 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
             water = await self.api.water_summary(self.controller, since, today + timedelta(days=1))
             runs = await self.api.gpm_data(self.controller, today - timedelta(days=365), today + timedelta(days=1))
             try:
+                outlet_status = await self.api.outlet_status(self.controller)
+            except SpruceError:
+                outlet_status = {}
+            try:
                 network = await self.api.network(self.controller)
             except SpruceError:
                 network = {}
@@ -172,8 +186,46 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
                 configured_gpm=_float(z.get("gpm")), sensor_id=z.get("sensor") or None)
         controller_app = (app_settings.get("controller") or {}).get(self.controller, {})
         data.hibernating = str(controller_app.get("hibernate_enabled")) == "1"
+        until = str(controller_app.get("hibernate_end_date") or "")
+        data.hibernate_until = date.fromisoformat(until[:10]) if data.hibernating and _is_date(until[:10]) else None
         data.rain_skip_inches = _float(controller_app.get("rain_delay_inches"))
         data.freeze_skip_f = _float(controller_app.get("freeze_temperature"))
+        data.wind_skip_mph = _float(controller_app.get("wind_mph"))
+        data.manual_max_minutes = _float(controller_app.get("manual_max_time"))
+        data.pump_delay_seconds = _float(controller_app.get("pump_delay"))
+        data.concurrent_zones = str(controller_app.get("concurrent_zones_enabled")) == "1"
+        data.num_zones = int(_float(controller_app.get("num_zones")) or max([z for z in data.zones if z < 100], default=0))
+        for gid, g in (controller_app.get("zone_group") or {}).items():
+            members = tuple(int(z) for z in str(g.get("grouped_zones") or "").split(";") if z.strip().isdigit())
+            if str(gid).isdigit() and members:
+                data.zone_groups[int(gid)] = {"name": g.get("zone_group_name") or f"Zones {' + '.join(map(str, members))}",
+                                              "zones": members, "sensor_zone": _int(g.get("sensor_in_zone"))}
+        for group in data.zone_groups.values():
+            for z in group["zones"]:
+                if z in data.zones:
+                    data.zones[z].group = group["zones"]
+        port = (controller_app.get("zone") or {}).get("101") or {}
+        if port.get("custom_flow_enabled") not in (None, "") or port.get("flow_limit_high") not in (None, ""):
+            data.flow_meter = {
+                "limit_high": _float(port.get("flow_limit_high")), "limit_low": _float(port.get("flow_limit_low")),
+                "stop_on_high": str(port.get("flow_stop_enabled")) == "1",
+                "pump_protect": str(port.get("flow_pump_protect_enabled", "1")) == "1",
+                "leak_small": str(port.get("flow_idle_leak_small_enabled", "1")) == "1",
+                "leak_big": str(port.get("flow_idle_leak_big_enabled", "1")) == "1",
+                "custom": str(port.get("custom_flow_enabled")) == "1",
+                "k": _float(port.get("flow_k")), "offset": _float(port.get("flow_offset")),
+            }
+        for did, d in (app_settings.get("device") or {}).items():
+            if str(d.get("gateway")) != self.controller or str(d.get("device_type", "")).lower() != "outlet":
+                continue
+            st = outlet_status.get(did) or {}
+            seen = _int(st.get("epoch_time"))
+            data.outlets[did] = {
+                "name": d.get("device_name") or f"Outlet {did[-4:]}", "model": d.get("model_number"),
+                "firmware": d.get("firmware"), "on": _int(st.get("current_state")) == 1,
+                "last_seen": datetime.fromtimestamp(seen, timezone.utc) if seen else None,
+                "signal": _float(st.get("signal_strength")),
+            }
         for sid, s in (app_settings.get("schedule") or {}).items():
             if str(s.get("master_controller", self.controller)) not in (self.controller, "None", ""):
                 continue
@@ -186,7 +238,12 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
                 "wind_skip": str(s.get("wind_delay_enabled", "1")) == "1",
                 "rain_inches": _float(s.get("rain_delay_inches")) if s.get("rain_delay_inches") not in (None, "") else 0.15,
                 "zones": {int(z): {"enabled": str(v.get("zonesched_enabled", "1")) == "1",
-                                   "scaling": _float(v.get("duration_scaling")) or 100.0}
+                                   "scaling": _float(v.get("duration_scaling")) or 100.0,
+                                   # connected schedules keep the weather skips per zone (default on, as the app)
+                                   "rain_skip": str(v.get("rain_delay_enabled", "1")) == "1",
+                                   "freeze_skip": str(v.get("freeze_delay_enabled", "1")) == "1",
+                                   "wind_skip": str(v.get("wind_delay_enabled", "1")) == "1",
+                                   "mode": v.get("schedule_mode"), "cycles": v.get("cycles")}
                           for z, v in _literal(s.get("zone")).items() if str(z).isdigit() and isinstance(v, dict)},
                 "next_date": s.get("next_date"), "next_minutes": _float(s.get("next_minutes")),
                 "days": _watering_days(s),
@@ -318,6 +375,13 @@ def _watering_days(s: dict) -> str | None:
             return "Every day"
         return ", ".join(name[:3] for name, on in zip(WEEKDAYS, var) if on == "1") or "No days"
     return None
+
+
+def _int(v: Any) -> int | None:
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
 
 
 def _literal(v: Any) -> dict:

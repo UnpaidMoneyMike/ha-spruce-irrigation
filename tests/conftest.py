@@ -10,6 +10,7 @@ from homeassistant.util import dt as dt_util
 
 CONTROLLER = "aa00bb11cc22dd33ee44ff55"
 SENSOR = "000D6F0000ABCDEF"
+OUTLET = "000D6FFFFE000001"
 
 
 @pytest.fixture(autouse=True)
@@ -33,13 +34,21 @@ def fake_api() -> AsyncMock:
         },
     }
     api.settings.return_value = {
-        "controller": {CONTROLLER: {"hibernate_enabled": "0", "rain_delay_inches": "0.15", "freeze_temperature": "35"}},
+        "controller": {CONTROLLER: {
+            "hibernate_enabled": "0", "rain_delay_inches": "0.15", "freeze_temperature": "35", "wind_mph": "15",
+            "manual_max_time": "10", "num_zones": "3",
+            "zone_group": {"1": {"grouped_zones": "1;2;", "zone_group_name": "Lawns", "sensor_in_zone": "1"}},
+            "zone": {"101": {"custom_flow_enabled": "0", "flow_limit_high": "40", "flow_limit_low": "-30",
+                             "flow_stop_enabled": "0", "flow_pump_protect_enabled": "1",
+                             "flow_idle_leak_small_enabled": "1", "flow_idle_leak_big_enabled": "1"}}}},
+        "device": {OUTLET: {"device_name": "Porch plug", "device_type": "Outlet", "model_number": "TRADFRI signal repeater",
+                            "gateway": CONTROLLER}},
         "schedule": {
             "11": {"schedule_name": "Morning", "schedule_type": "connected", "sched_enabled": "1",
                    "start_time": "06:00", "master_controller": CONTROLLER, "rain_delay_inches": "0.15",
                    "freeze_delay_enabled": "0", "days_select": "everyx", "days_var": "1",
                    "zone": {"1": {"duration_scaling": "100", "zonesched_enabled": "1"},
-                            "2": {"duration_scaling": "80", "zonesched_enabled": "1"}},
+                            "2": {"duration_scaling": "80", "zonesched_enabled": "1", "wind_delay_enabled": "0"}},
                    "history": {(today - timedelta(days=1)).isoformat(): {
                        "is_scheduled": False, "message": "No watering needed today.", "epoch_time": epoch - 86400}},
                    "prediction": {
@@ -84,6 +93,8 @@ def fake_api() -> AsyncMock:
         {"ymd": today.isoformat(), "precip_in": 0.2, "temp_min": 59, "temp_max": 77},
     ]
     api.events.return_value = []
+    api.outlet_status.return_value = {OUTLET: {"device_id": OUTLET, "current_state": "0", "epoch_time": str(epoch - 86400 * 30),
+                                               "duration": "0", "schedule_id": "0", "signal_strength": "-70"}}
     return api
 
 

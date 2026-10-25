@@ -17,7 +17,7 @@ from pytest_homeassistant_custom_component.components.recorder.common import asy
 from custom_components.spruce_irrigation.const import CONF_API_KEY, CONF_CONTROLLER, DOMAIN
 from custom_components.spruce_irrigation.statistics import statistic_id
 
-from .conftest import CONTROLLER
+from .conftest import CONTROLLER, OUTLET
 
 
 @pytest.fixture(autouse=True)
@@ -165,8 +165,16 @@ async def test_schedule_controls(hass: HomeAssistant, entry, mock_api) -> None:
     enabled = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_schedule_11_enabled")
     assert hass.states.get(enabled).state == "on"
     assert reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_schedule_12_enabled") is None   # manual: no settings
+    # Connected schedule: skips are per zone; the switch is on only when every zone has it
     freeze = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_schedule_11_freeze_skip")
-    assert hass.states.get(freeze).state == "off"
+    assert hass.states.get(freeze).state == "on"
+    wind = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_schedule_11_wind_skip")
+    assert hass.states.get(wind).state == "off"
+    assert hass.states.get(wind).attributes["zones_off"] == ["Garden Beds"]
+    await hass.services.async_call("switch", "turn_on", {"entity_id": wind}, blocking=True)
+    mock_api.save_schedule_zones.assert_awaited_with(
+        CONTROLLER, 11, {1: {"wind_delay_enabled": "1"}, 2: {"wind_delay_enabled": "1"}})
+    assert hass.states.get(wind).state == "on"
 
     await hass.services.async_call("switch", "turn_off", {"entity_id": enabled}, blocking=True)
     mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"sched_enabled": "0"}, None)
@@ -178,16 +186,87 @@ async def test_schedule_controls(hass: HomeAssistant, entry, mock_api) -> None:
     mock_api.save_schedule_settings.assert_awaited_with(
         CONTROLLER, 11, {"start_time": "05:30", "start_time_mode": "set"}, None)
 
+    # Garden Beds is in the "Lawns" zone group with Front Lawn: the group changes together
     await hass.services.async_call(DOMAIN, "set_schedule_zone",
-                                   {"schedule": "Morning", "zone": "Garden Beds", "watering_percent": 120}, blocking=True)
-    mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"duration_scaling": "120"}, 2)
+                                   {"schedule": "Morning", "zone": "Garden Beds", "watering_percent": 120,
+                                    "rain_skip": False}, blocking=True)
+    mock_api.save_schedule_zones.assert_awaited_with(
+        CONTROLLER, 11, {1: {"duration_scaling": "120", "rain_delay_enabled": "0"},
+                         2: {"duration_scaling": "120", "rain_delay_enabled": "0"}})
 
-    rain = reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_schedule_11_rain_threshold")
-    assert hass.states.get(rain).state == "3.8"                   # 0.15 in, shown in mm
+    # Weather thresholds are the controller's, shown in metric
+    assert reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_schedule_11_rain_threshold") is None
+    rain = reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_rain_skip_threshold")
+    assert hass.states.get(rain).state == "3.81"                   # 0.15 in
     assert hass.states.get(rain).attributes["unit_of_measurement"] == "mm"
     await hass.services.async_call("number", "set_value", {"entity_id": rain, "value": 5}, blocking=True)
-    mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"rain_delay_inches": "0.197"}, None)
+    mock_api.save_controller_settings.assert_awaited_with(CONTROLLER, {"rain_delay_inches": "0.197"})
+
+    wind_limit = reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_wind_skip_threshold")
+    assert hass.states.get(wind_limit).attributes["unit_of_measurement"] == "km/h"
+    await hass.services.async_call("number", "set_value", {"entity_id": wind_limit, "value": 32}, blocking=True)
+    mock_api.save_controller_settings.assert_awaited_with(CONTROLLER, {"wind_mph": "20"})
 
     freeze_temp = reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_freeze_temperature")
     await hass.services.async_call("number", "set_value", {"entity_id": freeze_temp, "value": 1}, blocking=True)
     mock_api.save_controller_settings.assert_awaited_with(CONTROLLER, {"freeze_temperature": "34"})   # 1 °C = 33.8 °F
+
+
+async def test_controller_settings(hass: HomeAssistant, entry, mock_api) -> None:
+    reg = er.async_get(hass)
+    max_time = reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_manual_max_time")
+    assert hass.states.get(max_time).state == "10.0"
+    await hass.services.async_call("number", "set_value", {"entity_id": max_time, "value": 16}, blocking=True)
+    mock_api.save_controller_settings.assert_awaited_with(CONTROLLER, {"manual_max_time": "16"})
+    mock_api.refresh_settings.assert_awaited_with(CONTROLLER)   # the controller uses it: told to fetch settings
+
+    zone3 = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_zone_3_enabled")
+    assert hass.states.get(zone3).state == "off"
+    await hass.services.async_call("switch", "turn_on", {"entity_id": zone3}, blocking=True)
+    mock_api.save_zone_settings.assert_awaited_with(CONTROLLER, {3: {"zenabled": "1"}})
+
+    leak = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_flow_leak_burst")
+    assert hass.states.get(leak).state == "on"
+    await hass.services.async_call("switch", "turn_off", {"entity_id": leak}, blocking=True)
+    mock_api.save_zone_settings.assert_awaited_with(
+        CONTROLLER, {101: {"flow_idle_leak_big_enabled": "0"}, 102: {"flow_idle_leak_big_enabled": "0"}})
+
+    high = reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_flow_limit_high")
+    await hass.services.async_call("number", "set_value", {"entity_id": high, "value": 45}, blocking=True)
+    mock_api.save_zone_settings.assert_awaited_with(
+        CONTROLLER, {101: {"flow_limit_high": "45"}, 102: {"flow_limit_high": "45"}})
+
+
+async def test_outlet_and_pause(hass: HomeAssistant, entry, mock_api) -> None:
+    reg = er.async_get(hass)
+    outlet = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_{OUTLET}_outlet")
+    assert hass.states.get(outlet).state == "off"
+    await hass.services.async_call("switch", "turn_on", {"entity_id": outlet}, blocking=True)
+    mock_api.outlet_on.assert_awaited_with(CONTROLLER, OUTLET)
+    silent = reg.async_get_entity_id("binary_sensor", DOMAIN, f"{CONTROLLER}_{OUTLET}_silent")
+    assert hass.states.get(silent).state == "on"                 # last report 30 days ago
+
+    pause = reg.async_get_entity_id("button", DOMAIN, f"{CONTROLLER}_pause_until_tomorrow")
+    await hass.services.async_call("button", "press", {"entity_id": pause}, blocking=True)
+    mock_api.hibernate.assert_awaited_with(CONTROLLER, True, dt_util.now().date() + timedelta(days=1))
+    hibernate = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_hibernate")
+    assert hass.states.get(hibernate).attributes["until"] == (dt_util.now().date() + timedelta(days=1)).isoformat()
+
+
+async def test_us_units_and_cost(hass: HomeAssistant, mock_api) -> None:
+    from custom_components.spruce_irrigation.const import CONF_PRICE, CONF_UNITS
+
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=CONTROLLER, title="Test Spruce",
+                            data={CONF_API_KEY: "k", CONF_CONTROLLER: CONTROLLER},
+                            options={CONF_UNITS: "us", CONF_PRICE: 5.0})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await async_wait_recording_done(hass)
+    reg = er.async_get(hass)
+    today = hass.states.get(reg.async_get_entity_id("sensor", DOMAIN, f"{CONTROLLER}_water_today"))
+    assert today.attributes["unit_of_measurement"] == "gal" and float(today.state) == pytest.approx(80, rel=1e-3)
+    rain = hass.states.get(reg.async_get_entity_id("number", DOMAIN, f"{CONTROLLER}_rain_skip_threshold"))
+    assert rain.attributes["unit_of_measurement"] == "in" and float(rain.state) == 0.15
+    cost = hass.states.get(reg.async_get_entity_id("sensor", DOMAIN, f"{CONTROLLER}_water_cost_today"))
+    assert float(cost.state) == pytest.approx(80 / 1000 * 5, abs=0.01)   # $5 per 1000 gal

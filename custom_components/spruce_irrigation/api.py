@@ -205,6 +205,32 @@ class SpruceApi:
                    "settings_key": key}
             for name, value in values.items()})
 
+    async def save_schedule_zones(self, controller: str, schedule_id: int, values: dict[int, dict[str, str]]) -> None:
+        """Save settings of several zones within a schedule in one go (a zone group, or a skip for every zone), as the
+        app does: one record per zone and setting."""
+        records: dict[str, dict] = {}
+        for zone, zone_values in values.items():
+            for name, value in zone_values.items():
+                records[f"{name},{zone}"] = {
+                    "name": name, "value": value, "device_id": controller, "zone": zone, "schedule_id": schedule_id,
+                    "settings_key_type": "schedule_zone", "settings_key": f"schedule.{schedule_id}.zone.{zone}"}
+        await self._save_settings(records)
+
+    async def save_zone_settings(self, controller: str, values: dict[int, dict[str, str]]) -> None:
+        """Save settings of zones of the controller (incl. the flow-meter ports 101/102), as the app does."""
+        records: dict[str, dict] = {}
+        for zone, zone_values in values.items():
+            for name, value in zone_values.items():
+                records[f"{name},{zone}"] = {
+                    "name": name, "value": value, "device_id": controller, "zone": zone, "schedule_id": 0,
+                    "settings_key_type": "zone", "settings_key": f"controller.{controller}.zone.{zone}"}
+        await self._save_settings(records)
+
+    async def refresh_settings(self, controller: str) -> None:
+        """Tell the controller to fetch its settings again (the app does this after saving controller or zone
+        settings the controller itself uses)."""
+        await self._spruceset(controller, "settings")
+
     async def sync_schedule(self, controller: str, schedule_id: int, enabled: bool) -> None:
         """Tell the controller about a changed schedule, as the web app does after saving: an enabled schedule's run
         list is worked out again in the cloud and sent to the controller; a disabled one is removed from the
@@ -216,11 +242,12 @@ class SpruceApi:
                                       {"deviceid": controller, "scheduleid": schedule_id, "run": "false"}) or {}
         await self._spruceset(controller, f"schedule,{schedule_id},{runlist.get('start_time') or 0}")
 
-    async def hibernate(self, controller: str, enabled: bool) -> None:
-        """Hibernate (winter mode): schedules don't run until turned off again. Like the app: save the setting,
-        then tell the controller."""
-        await self.save_controller_settings(controller, {"hibernate_enabled": "1" if enabled else "0",
-                                                         **({} if enabled else {"hibernate_end_date": ""})})
+    async def hibernate(self, controller: str, enabled: bool, until: date | None = None) -> None:
+        """Hibernate (winter mode): schedules don't run until turned off again, or until `until` (Spruce resumes them
+        on that day). Like the app: save the setting, then tell the controller."""
+        await self.save_controller_settings(controller, {
+            "hibernate_enabled": "1" if enabled else "0",
+            "hibernate_end_date": until.isoformat() if enabled and until else ("0" if enabled else "")})
         await self._spruceset(controller, f"hibernate,{1 if enabled else 0}")
 
     async def pause(self, pause_seconds: int) -> None:
@@ -229,6 +256,18 @@ class SpruceApi:
 
     async def resume(self) -> None:
         await self._request("POST", "v2/resume", {"pausetime": 0})
+
+    async def outlet_status(self, controller: str) -> dict[str, dict]:
+        """Zigbee outlets / repeaters: current_state (1 = on), epoch_time (last report), duration, signal_strength."""
+        data = await self._request("GET", "app/api/outlet_status", {"controller_id": controller})
+        return data if isinstance(data, dict) else {}
+
+    async def outlet_on(self, controller: str, device: str, seconds: int = 0) -> None:
+        """Switch a Zigbee outlet on, for `seconds` (0 = until switched off)."""
+        await self._spruceset(controller, f"run,oon,{device},{int(seconds)}")
+
+    async def outlet_off(self, controller: str, device: str) -> None:
+        await self._spruceset(controller, f"run,ooff,{device}")
 
     async def pair_sensor(self, controller: str) -> None:
         """Put the controller's Zigbee network in listen mode so a reset moisture sensor can join."""

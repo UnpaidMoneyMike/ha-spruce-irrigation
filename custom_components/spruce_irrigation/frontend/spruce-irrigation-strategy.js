@@ -7,7 +7,10 @@
 const DOMAIN = "spruce_irrigation";
 
 const CONTROLLER_KEYS = ["status", "active_zone", "watering_ends", "water_today", "water_month", "wifi_signal",
-  "last_seen", "online", "watering", "hibernate", "stop", "pair_sensor", "freeze_temperature", "next_watering",
+  "last_seen", "online", "watering", "hibernate", "stop", "pair_sensor", "cancel_pairing", "freeze_temperature",
+  "rain_skip_threshold", "wind_skip_threshold", "manual_max_time", "pump_delay", "concurrent_zones",
+  "flow_limit_high", "flow_limit_low", "flow_stop_on_high", "flow_pump_protect", "flow_leak_sustained",
+  "flow_leak_burst", "pause_until_tomorrow", "water_cost_today", "water_cost_month", "next_watering",
   "watering_today", "plan"];
 const SENSOR_KEYS = ["moisture", "temperature", "battery", "signal", "last_reading"];
 
@@ -26,10 +29,11 @@ async function collect(hass) {
   const controllers = Object.keys(byUnique).filter((u) => u.endsWith("_status")).map((u) => u.slice(0, -7));
 
   return controllers.map((ctrl) => {
-    const c = { id: ctrl, entities: {}, zones: {}, schedules: {}, sensors: {} };
+    const c = { id: ctrl, entities: {}, zones: {}, schedules: {}, sensors: {}, outlets: {} };
     const zoneRe = new RegExp(`^${ctrl}_zone_(\\d+)_(\\w+)$`);
     const schedRe = new RegExp(`^${ctrl}_schedule_(\\d+)_(\\w+)$`);
     const sensorRe = new RegExp(`^${ctrl}_(\\w+?)_(${SENSOR_KEYS.join("|")})$`);
+    const outletRe = new RegExp(`^${ctrl}_(\\w+?)_(outlet|silent|last_seen)$`);
     for (const [unique, entityId] of Object.entries(byUnique)) {
       if (!unique.startsWith(`${ctrl}_`)) continue;
       const key = unique.slice(ctrl.length + 1);
@@ -37,7 +41,13 @@ async function collect(hass) {
       if ((m = unique.match(zoneRe))) (c.zones[m[1]] ??= {})[m[2]] = entityId;
       else if ((m = unique.match(schedRe))) (c.schedules[m[1]] ??= {})[m[2]] = entityId;
       else if (CONTROLLER_KEYS.includes(key)) c.entities[key] = entityId;
+      else if ((m = unique.match(outletRe))) (c.outlets[m[1]] ??= {})[m[2]] = entityId;
       else if ((m = unique.match(sensorRe))) (c.sensors[m[1]] ??= {})[m[2]] = entityId;
+    }
+    // Outlets (repeater plugs) also have a signal sensor: keep them out of the moisture sensors
+    for (const [id, o] of Object.entries(c.outlets)) {
+      if (c.sensors[id]) { o.signal = c.sensors[id].signal; delete c.sensors[id]; }
+      o.name = deviceName(hass, o.outlet || o.last_seen) || "Outlet";
     }
     c.name = deviceName(hass, c.entities.status) || "Spruce";
     for (const s of Object.values(c.sensors)) s.name = deviceName(hass, s.moisture || s.last_reading) || "Moisture sensor";
@@ -135,8 +145,8 @@ function overviewView(hass, c, zones, schedules) {
       heading("Controller", "mdi:sprinkler-variant"),
       tile(e.status), tile(e.active_zone), tile(e.watering_ends), tile(e.online),
       planCard(c),
-      tile(e.water_today), tile(e.water_month),
-      tile(e.hibernate), press(e.stop),
+      tile(e.water_today), tile(e.water_month), tile(e.water_cost_month),
+      tile(e.hibernate), press(e.pause_until_tomorrow, "Skip scheduled watering until tomorrow?"), press(e.stop),
     ]),
     section([
       heading("Zones", "mdi:valve"),
@@ -207,7 +217,6 @@ function schedulesView(hass, c, zones, schedules) {
       tile(e.enabled, { name: "Enabled", state_content: ["state", "watering_days"] }),
       tile(e.start_time, { name: "Start time" }),
       tile(e.rain_skip, { name: "Rain skip" }),
-      tile(e.rain_threshold, { name: "Rain skip threshold" }),
       tile(e.freeze_skip, { name: "Freeze skip" }),
       tile(e.wind_skip, { name: "Wind skip" }),
       press(e.run, `Run ${schedules[sid]} now?`),
@@ -239,8 +248,10 @@ function schedulesView(hass, c, zones, schedules) {
       }))), "week", 90),
     ], 2));
   }
-  sections.push(section([heading("Weather skips", "mdi:weather-snowy-rainy"),
-    tile(c.entities.freeze_temperature, { name: "Freeze skip below" })]));
+  sections.push(section([heading("Weather Watch (all schedules)", "mdi:weather-snowy-rainy"),
+    tile(c.entities.rain_skip_threshold, { name: "Rain skip above" }),
+    tile(c.entities.freeze_temperature, { name: "Freeze skip below" }),
+    tile(c.entities.wind_skip_threshold, { name: "Wind skip above" })]));
   return { type: "sections", title: "Schedules", path: "schedules", icon: "mdi:calendar-clock", max_columns: 4, sections };
 }
 
@@ -279,13 +290,21 @@ function diagnosticsView(c) {
     type: "sections", title: "Diagnostics", path: "diagnostics", icon: "mdi:stethoscope", max_columns: 4,
     sections: [
       section([heading("Controller", "mdi:wifi"), tile(e.online), tile(e.wifi_signal), tile(e.last_seen),
-        press(e.pair_sensor, "Let a moisture sensor join the controller?")]),
+        press(e.pair_sensor, "Let a moisture sensor join the controller?"), press(e.cancel_pairing)]),
+      e.flow_limit_high && section([heading("Flow meter", "mdi:water-check"), tile(e.flow_limit_high), tile(e.flow_limit_low),
+        tile(e.flow_stop_on_high), tile(e.flow_pump_protect), tile(e.flow_leak_sustained), tile(e.flow_leak_burst)]),
+      section([heading("Controller settings", "mdi:cog"), tile(e.manual_max_time), tile(e.pump_delay),
+        tile(e.concurrent_zones)]),
+      ...Object.values(c.outlets).map((o) => section([
+        heading(o.name, "mdi:power-socket-au"), tile(o.outlet, { name: "Socket" }), tile(o.silent, { name: "Not reporting" }),
+        tile(o.last_seen, { name: "Last report" }), tile(o.signal, { name: "Signal" }),
+      ])),
       ...Object.values(c.sensors).map((s) => section([
         heading(s.name, "mdi:leaf"), tile(s.moisture, { name: "Moisture" }), tile(s.temperature, { name: "Temperature" }),
         tile(s.battery, { name: "Battery" }), tile(s.signal, { name: "Signal" }),
         tile(s.last_reading, { name: "Last reading" }),
       ])),
-    ],
+    ].filter(Boolean),
   };
 }
 

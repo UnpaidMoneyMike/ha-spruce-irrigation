@@ -6,13 +6,17 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .entity import SpruceEntity, SpruceZoneEntity
+from homeassistant.util import dt as dt_util
+
+from .const import OUTLET_SILENT
+from .entity import SpruceEntity, SpruceZoneEntity, outlet_device_info
 
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     rt = entry.runtime_data
     entities: list[BinarySensorEntity] = [SpruceOnline(entry), SpruceWatering(entry)]
     entities += [SpruceFlowFault(entry, z) for z, zone in rt.history.data.zones.items() if zone.enabled]
+    entities += [SpruceOutletSilent(entry, did) for did in rt.history.data.outlets]
     async_add_entities(entities)
 
 
@@ -61,3 +65,22 @@ class SpruceFlowFault(SpruceZoneEntity, BinarySensorEntity):
         return {"last_run": run.get("at").isoformat() if run.get("at") else None,
                 "last_run_flow_lpm": round(run["lpm"], 2) if "lpm" in run else None,
                 "usual_flow_lpm": round(self.history.usual_lpm[self.zone], 2) if self.zone in self.history.usual_lpm else None}
+
+
+class SpruceOutletSilent(SpruceEntity, BinarySensorEntity):
+    """On when a Zigbee outlet / repeater hasn't reported for a week: the moisture sensors that relay through it
+    may go quiet too."""
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "outlet_silent"
+
+    def __init__(self, entry, device: str) -> None:
+        super().__init__(entry, entry.runtime_data.history, f"{device}_silent")
+        self.device = device
+        self._attr_device_info = outlet_device_info(self.rt, device)
+
+    @property
+    def is_on(self) -> bool | None:
+        seen = self.history.outlets.get(self.device, {}).get("last_seen")
+        return seen is None or dt_util.utcnow() - seen > OUTLET_SILENT

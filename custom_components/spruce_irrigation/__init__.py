@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import voluptuous as vol
@@ -12,11 +12,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HassJob, HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers import config_validation as cv, device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
+from homeassistant.util import dt as dt_util
 
 from .api import SpruceApi, SpruceError
 from .const import (
@@ -28,6 +29,7 @@ from .const import (
     SERVICE_PAIR_SENSOR,
     SERVICE_RUN_ALL,
     SERVICE_RUN_SCHEDULE,
+    SERVICE_PAUSE_SCHEDULES,
     SERVICE_SET_SCHEDULE_ZONE,
     SERVICE_STOP,
     SERVICE_STOP_SCHEDULE,
@@ -35,6 +37,7 @@ from .const import (
     STRATEGY_URL,
 )
 from .coordinator import SpruceHistoryCoordinator, SpruceStatusCoordinator
+from .units import Units
 from .statistics import async_import_history, async_update_recent_statistics
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,6 +56,7 @@ class SpruceRuntime:
     history: SpruceHistoryCoordinator
     run_minutes: dict[int, float] = field(default_factory=dict)   # per-zone manual run time (number entities)
     device_id: str | None = None   # the controller's device registry id (moisture sensor devices link to it)
+    units: Units = field(default_factory=lambda: Units({}))
 
     def optimistic(self, zone: int | None, change: dict | None) -> None:
         """Show a command's effect straight away (Spruce's cloud takes a few seconds to catch up), then confirm it
@@ -91,6 +95,55 @@ class SpruceRuntime:
         await self.history.async_request_refresh()
 
 
+    async def async_save(self, what: str, action, local=None, sync: bool = False) -> None:
+        """Save something in Spruce (`action`: an awaitable), then show it straight away (`local`: a callable that
+        updates the cached data) and, for settings the controller itself uses, tell it to fetch them."""
+        try:
+            await action
+            if sync:
+                await self.api.refresh_settings(self.controller)
+        except SpruceError as err:
+            raise HomeAssistantError(f"Couldn't change {what}: {err}") from err
+        if local:
+            local(self.history.data)
+            self.history.async_update_listeners()
+        await self.history.async_request_refresh()
+
+    async def async_set_schedule_zones(self, schedule_id: int, zones: list[int], values: dict[str, str],
+                                       local: dict) -> None:
+        """Change settings of zones within a schedule (a whole zone group at once), then sync it to the controller."""
+        schedule = self.history.data.schedules.get(schedule_id)
+        if schedule is None:
+            raise ServiceValidationError(f"No Spruce schedule {schedule_id}")
+
+        def apply(data) -> None:
+            for z in zones:
+                data.schedules[schedule_id]["zones"].setdefault(z, {}).update(local)
+        await self.async_save(schedule["name"], self.api.save_schedule_zones(
+            self.controller, schedule_id, {z: dict(values) for z in zones}), apply)
+        if schedule.get("enabled") and schedule.get("type") != "manual":
+            try:
+                await self.api.sync_schedule(self.controller, schedule_id, True)
+            except SpruceError as err:
+                raise HomeAssistantError(f"Saved, but couldn't send {schedule['name']} to the controller: {err}") from err
+
+    async def async_set_zone_skips(self, schedule_id: int, skip: str, on: bool, zones: list[int] | None = None) -> None:
+        """Turn a weather skip (rain / freeze / wind) on or off for zones of a connected schedule (all its zones by
+        default) — Spruce keeps these per zone, as its Weather Watch page shows."""
+        schedule = self.history.data.schedules.get(schedule_id)
+        if schedule is None:
+            raise ServiceValidationError(f"No Spruce schedule {schedule_id}")
+        targets = zones or list(schedule["zones"])
+        setting = {"rain_skip": "rain_delay_enabled", "freeze_skip": "freeze_delay_enabled",
+                   "wind_skip": "wind_delay_enabled"}[skip]
+
+        def local(data) -> None:
+            for z in targets:
+                data.schedules[schedule_id]["zones"].setdefault(z, {})[skip] = on
+        await self.async_save(f"{schedule['name']}'s {skip.replace('_', ' ')}", self.api.save_schedule_zones(
+            self.controller, schedule_id, {z: {setting: "1" if on else "0"} for z in targets}), local)
+
+
 type SpruceConfigEntry = ConfigEntry[SpruceRuntime]
 
 
@@ -101,12 +154,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> bo
     history = SpruceHistoryCoordinator(hass, entry, api, controller)
     await history.async_config_entry_first_refresh()
     await status.async_config_entry_first_refresh()
-    entry.runtime_data = SpruceRuntime(api, controller, status, history)
+    entry.runtime_data = SpruceRuntime(api, controller, status, history, units=Units(entry.options))
 
     entry.runtime_data.device_id = dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, controller)}, manufacturer="Plaid Systems (Spruce)",
         name=history.data.name, model=history.data.model, sw_version=history.data.firmware,
         serial_number=history.data.serial, configuration_url="https://app.spruceirrigation.com/").id
+    _remove_retired_entities(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Water history into long-term statistics: everything once, then the last week after each history update
@@ -147,6 +201,14 @@ def _layout_changed(old: tuple, new: tuple) -> bool:
     return old[:3] != new[:3] or bool(sensors)
 
 
+def _remove_retired_entities(hass: HomeAssistant, entry: SpruceConfigEntry) -> None:
+    """0.6: the rain skip threshold is the controller's (one for all schedules), not a number per schedule."""
+    registry = er.async_get(hass)
+    for item in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if item.unique_id.endswith("_rain_threshold") and "_schedule_" in item.unique_id:
+            registry.async_remove(item.entity_id)
+
+
 async def _first_import(hass: HomeAssistant, entry: SpruceConfigEntry) -> None:
     try:
         await async_import_history(hass, entry, None)
@@ -172,13 +234,16 @@ SCHEMAS = {
     SERVICE_RUN_SCHEDULE: vol.Schema({DEVICE: cv.string, vol.Required("schedule"): cv.string}),
     SERVICE_STOP_SCHEDULE: vol.Schema({DEVICE: cv.string, vol.Required("schedule"): cv.string}),
     SERVICE_STOP: vol.Schema({DEVICE: cv.string}),
-    SERVICE_HIBERNATE: vol.Schema({DEVICE: cv.string, vol.Required("enabled"): cv.boolean}),
+    SERVICE_HIBERNATE: vol.Schema({DEVICE: cv.string, vol.Required("enabled"): cv.boolean, vol.Optional("until"): cv.date}),
+    SERVICE_PAUSE_SCHEDULES: vol.Schema({DEVICE: cv.string, vol.Exclusive("days", "until"): vol.All(vol.Coerce(int), vol.Range(min=1, max=365)),
+                                         vol.Exclusive("until", "until"): cv.date}),
     SERVICE_PAIR_SENSOR: vol.Schema({DEVICE: cv.string}),
     SERVICE_IMPORT_HISTORY: vol.Schema({DEVICE: cv.string, vol.Optional("start_date"): cv.date}),
     SERVICE_SET_SCHEDULE_ZONE: vol.Schema({
         DEVICE: cv.string, vol.Required("schedule"): cv.string, vol.Required("zone"): cv.string,
         vol.Optional("watering_percent"): vol.All(vol.Coerce(int), vol.Range(min=1, max=300)),
-        vol.Optional("enabled"): cv.boolean}),
+        vol.Optional("enabled"): cv.boolean, vol.Optional("rain_skip"): cv.boolean, vol.Optional("freeze_skip"): cv.boolean,
+        vol.Optional("wind_skip"): cv.boolean}),
 }
 
 
@@ -196,21 +261,27 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             elif call.service == SERVICE_STOP:
                 await api.stop(ctrl)
             elif call.service == SERVICE_HIBERNATE:
-                await api.hibernate(ctrl, call.data["enabled"])
+                await api.hibernate(ctrl, call.data["enabled"], call.data.get("until"))
+            elif call.service == SERVICE_PAUSE_SCHEDULES:
+                until = call.data.get("until") or (dt_util.now().date() + timedelta(days=call.data.get("days", 1)))
+                await api.hibernate(ctrl, True, until)
             elif call.service == SERVICE_PAIR_SENSOR:
                 await api.pair_sensor(ctrl)
             elif call.service == SERVICE_SET_SCHEDULE_ZONE:
-                sid, zone = _schedule_id(rt, call.data["schedule"]), _zone(rt, call.data["zone"])
+                # A zone in a zone group ("Place") is set with the rest of its group, as the app does
+                sid, zones = _schedule_id(rt, call.data["schedule"]), _zones(rt, call.data["zone"])
                 values, local = {}, {}
-                if "watering_percent" in call.data:
-                    values["duration_scaling"] = str(call.data["watering_percent"])
-                    local["scaling"] = float(call.data["watering_percent"])
-                if "enabled" in call.data:
-                    values["zonesched_enabled"] = "1" if call.data["enabled"] else "0"
-                    local["enabled"] = call.data["enabled"]
+                for field, setting in (("watering_percent", "duration_scaling"), ("enabled", "zonesched_enabled"),
+                                       ("rain_skip", "rain_delay_enabled"), ("freeze_skip", "freeze_delay_enabled"),
+                                       ("wind_skip", "wind_delay_enabled")):
+                    if field not in call.data:
+                        continue
+                    value = call.data[field]
+                    values[setting] = str(value) if field == "watering_percent" else ("1" if value else "0")
+                    local["scaling" if field == "watering_percent" else field] = float(value) if field == "watering_percent" else value
                 if not values:
-                    raise ServiceValidationError("Give watering_percent and/or enabled")
-                await rt.async_set_schedule(sid, values, zone=zone, local=local)
+                    raise ServiceValidationError("Give at least one of watering_percent, enabled, rain_skip, freeze_skip, wind_skip")
+                await rt.async_set_schedule_zones(sid, zones, values, local)
                 return
             elif call.service == SERVICE_IMPORT_HISTORY:
                 start: date | None = call.data.get("start_date")
@@ -219,7 +290,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         except SpruceError as err:
             raise HomeAssistantError(str(err)) from err
         rt.optimistic(None, {"on": False} if call.service == SERVICE_STOP else None)
-        if call.service in (SERVICE_HIBERNATE, SERVICE_RUN_SCHEDULE, SERVICE_STOP_SCHEDULE):
+        if call.service in (SERVICE_HIBERNATE, SERVICE_PAUSE_SCHEDULES, SERVICE_RUN_SCHEDULE, SERVICE_STOP_SCHEDULE):
             await rt.history.async_request_refresh()
 
     for name, schema in SCHEMAS.items():
@@ -273,6 +344,16 @@ def _entry_for(hass: HomeAssistant, device_id: str | None) -> SpruceConfigEntry:
     if len(entries) != 1:
         raise ServiceValidationError("Choose the Spruce controller (device) to use" if entries else "Spruce is not set up")
     return entries[0]
+
+
+def _zones(rt: SpruceRuntime, zone: str) -> list[int]:
+    """A zone (number or name) and the other zones of its group, or a zone group by name."""
+    data = rt.history.data
+    for group in data.zone_groups.values():
+        if group["name"].lower() == zone.strip().lower():
+            return list(group["zones"])
+    number = _zone(rt, zone)
+    return list(data.zones[number].group or (number,))
 
 
 def _zone(rt: SpruceRuntime, zone: str) -> int:

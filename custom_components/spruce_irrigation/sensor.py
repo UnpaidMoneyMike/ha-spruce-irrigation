@@ -25,8 +25,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import SENSOR_STALE
-from .entity import SpruceEntity, SpruceMoistureEntity, SpruceZoneEntity, planned_days
+from homeassistant.helpers.event import async_track_state_change_event
+
+from .const import CONF_PRICE, CONF_PRICE_ENTITY, LITRES_PER_GALLON, SENSOR_STALE
+from .entity import SpruceEntity, SpruceMoistureEntity, SpruceZoneEntity, outlet_device_info, planned_days
 
 STATES = ["idle", "watering", "paused", "pump_delay", "cycle_soak", "hibernating", "offline"]
 # Today's plan, most important first: a schedule watering beats one skipping
@@ -38,6 +40,8 @@ LPM = UnitOfVolumeFlowRate.LITERS_PER_MINUTE
 class SpruceSensorDescription(SensorEntityDescription):
     value_fn: Callable[[Any], Any]
     attrs_fn: Callable[[Any], dict[str, Any] | None] | None = None
+    quantity: str | None = None      # units.py quantity: shown in the unit the options choose
+    spruce_unit: bool = False        # the value is in Spruce's unit (else litres / L/min)
     status: bool = False            # read from the 1-minute status coordinator (else the history one)
 
 
@@ -117,10 +121,10 @@ CONTROLLER_SENSORS = (
                             options=TODAY, icon="mdi:calendar-today", value_fn=_today_state, attrs_fn=_today_attrs,
                             status=True),
     SpruceSensorDescription(key="water_today", translation_key="water_today", device_class=SensorDeviceClass.WATER,
-                            state_class=SensorStateClass.TOTAL_INCREASING, native_unit_of_measurement=UnitOfVolume.LITERS,
+                            state_class=SensorStateClass.TOTAL_INCREASING, native_unit_of_measurement=UnitOfVolume.LITERS, quantity="volume",
                             suggested_display_precision=0, value_fn=lambda rt: round(sum(rt.history.data.water_today.values()), 1)),
     SpruceSensorDescription(key="water_month", translation_key="water_month", device_class=SensorDeviceClass.WATER,
-                            state_class=SensorStateClass.TOTAL, native_unit_of_measurement=UnitOfVolume.LITERS,
+                            state_class=SensorStateClass.TOTAL, native_unit_of_measurement=UnitOfVolume.LITERS, quantity="volume",
                             suggested_display_precision=0, value_fn=lambda rt: round(sum(rt.history.data.water_month.values()), 1)),
     SpruceSensorDescription(key="wifi_signal", translation_key="wifi_signal", device_class=SensorDeviceClass.SIGNAL_STRENGTH,
                             native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT, entity_category=EntityCategory.DIAGNOSTIC,
@@ -131,14 +135,14 @@ CONTROLLER_SENSORS = (
 
 ZONE_SENSORS = (
     SpruceSensorDescription(key="water_today", translation_key="zone_water_today", device_class=SensorDeviceClass.WATER,
-                            state_class=SensorStateClass.TOTAL_INCREASING, native_unit_of_measurement=UnitOfVolume.LITERS,
+                            state_class=SensorStateClass.TOTAL_INCREASING, native_unit_of_measurement=UnitOfVolume.LITERS, quantity="volume",
                             suggested_display_precision=0, value_fn=lambda a: round(a[0].history.data.water_today.get(a[1], 0), 1)),
     SpruceSensorDescription(key="last_flow", translation_key="zone_last_flow", device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
-                            native_unit_of_measurement=LPM, suggested_display_precision=1,
+                            native_unit_of_measurement=LPM, suggested_display_precision=1, quantity="flow",
                             value_fn=lambda a: _round(a[0].history.data.last_run.get(a[1], {}).get("lpm"))),
     SpruceSensorDescription(key="usual_flow", translation_key="zone_usual_flow", device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
                             native_unit_of_measurement=LPM, suggested_display_precision=1, entity_category=EntityCategory.DIAGNOSTIC,
-                            value_fn=lambda a: _round(a[0].history.data.usual_lpm.get(a[1]))),
+                            quantity="flow", value_fn=lambda a: _round(a[0].history.data.usual_lpm.get(a[1]))),
     SpruceSensorDescription(key="last_run", translation_key="zone_last_run", device_class=SensorDeviceClass.TIMESTAMP,
                             value_fn=lambda a: a[0].history.data.last_run.get(a[1], {}).get("at")),
 )
@@ -148,6 +152,7 @@ MOISTURE_SENSORS = (
                             state_class=SensorStateClass.MEASUREMENT, value_fn=lambda r: r.get("moisture"), status=True),
     SpruceSensorDescription(key="temperature", device_class=SensorDeviceClass.TEMPERATURE,
                             native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT, state_class=SensorStateClass.MEASUREMENT,
+                            quantity="temperature", spruce_unit=True, suggested_display_precision=1,
                             value_fn=lambda r: r.get("temperature_f"), status=True),
     SpruceSensorDescription(key="battery", translation_key="battery_voltage", device_class=SensorDeviceClass.VOLTAGE,
                             native_unit_of_measurement=UnitOfElectricPotential.VOLT, state_class=SensorStateClass.MEASUREMENT,
@@ -173,20 +178,44 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddC
             entities += [SpruceZoneSensor(entry, z, d) for d in ZONE_SENSORS]
     for sid in rt.status.data.sensors:
         entities += [SpruceMoistureSensor(entry, sid, d) for d in MOISTURE_SENSORS]
+    entities += [SpruceCostSensor(entry, key) for key in ("water_cost_today", "water_cost_month")]
+    for did in rt.history.data.outlets:
+        entities += [SpruceOutletSensor(entry, did, d) for d in OUTLET_SENSORS]
     async_add_entities(entities)
 
 
-class SpruceControllerSensor(SpruceEntity, SensorEntity):
+class _UnitsMixin:
+    """Shows a value in the unit chosen in the options (Spruce works in gallons / gpm / °F; the integration keeps
+    litres and L/min)."""
+
+    entity_description: SpruceSensorDescription
+
+    def _apply_units(self) -> None:
+        q = self.entity_description.quantity
+        if q:
+            # Suggested too, so Home Assistant doesn't convert it to its own unit system when the entity is created
+            self._attr_native_unit_of_measurement = self._attr_suggested_unit_of_measurement = self.rt.units.unit[q]
+
+    def _convert(self, value):
+        d = self.entity_description
+        if not d.quantity or value is None:
+            return value
+        value = self.rt.units.from_spruce(d.quantity, value) if d.spruce_unit else self.rt.units.from_metric(d.quantity, value)
+        return round(value, 2)
+
+
+class SpruceControllerSensor(_UnitsMixin, SpruceEntity, SensorEntity):
     entity_description: SpruceSensorDescription
 
     def __init__(self, entry, description: SpruceSensorDescription) -> None:
         rt = entry.runtime_data
         super().__init__(entry, rt.status if description.status else rt.history, description.key)
         self.entity_description = description
+        self._apply_units()
 
     @property
     def native_value(self):
-        return self.entity_description.value_fn(self.rt)
+        return self._convert(self.entity_description.value_fn(self.rt))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -200,24 +229,26 @@ class SpruceControllerSensor(SpruceEntity, SensorEntity):
         return None
 
 
-class SpruceZoneSensor(SpruceZoneEntity, SensorEntity):
+class SpruceZoneSensor(_UnitsMixin, SpruceZoneEntity, SensorEntity):
     entity_description: SpruceSensorDescription
 
     def __init__(self, entry, zone: int, description: SpruceSensorDescription) -> None:
         super().__init__(entry, entry.runtime_data.history, zone, description.key)
         self.entity_description = description
+        self._apply_units()
 
     @property
     def native_value(self):
-        return self.entity_description.value_fn((self.rt, self.zone))
+        return self._convert(self.entity_description.value_fn((self.rt, self.zone)))
 
 
-class SpruceMoistureSensor(SpruceMoistureEntity, SensorEntity):
+class SpruceMoistureSensor(_UnitsMixin, SpruceMoistureEntity, SensorEntity):
     entity_description: SpruceSensorDescription
 
     def __init__(self, entry, sensor_id: str, description: SpruceSensorDescription) -> None:
         super().__init__(entry, entry.runtime_data.status, sensor_id, description.key)
         self.entity_description = description
+        self._apply_units()
 
     @property
     def available(self) -> bool:
@@ -229,4 +260,76 @@ class SpruceMoistureSensor(SpruceMoistureEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self.entity_description.value_fn(self.reading)
+        return self._convert(self.entity_description.value_fn(self.reading))
+
+
+class SpruceCostSensor(SpruceEntity, SensorEntity):
+    """What the water used today / this month cost, at the price in the options (a fixed price, or an entity that
+    holds the tariff): per kL with metric volume, per 1000 gal with US volume. Unknown until a price is set."""
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_suggested_display_precision = 2
+    _attr_icon = "mdi:cash"
+
+    def __init__(self, entry, key: str) -> None:
+        super().__init__(entry, entry.runtime_data.history, key)
+        self._key = key
+        self._attr_translation_key = key
+        self._options = entry.options
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._attr_native_unit_of_measurement = self.hass.config.currency
+        if entity := self._options.get(CONF_PRICE_ENTITY):
+            self.async_on_remove(async_track_state_change_event(
+                self.hass, [entity], lambda _event: self.async_write_ha_state()))
+
+    def _price(self) -> float | None:
+        if entity := self._options.get(CONF_PRICE_ENTITY):
+            state = self.hass.states.get(entity)
+            try:
+                return float(state.state) if state else None
+            except ValueError:
+                return None
+        price = self._options.get(CONF_PRICE)
+        return float(price) if price not in (None, "") else None
+
+    @property
+    def native_value(self) -> float | None:
+        price = self._price()
+        if price is None:
+            return None
+        used = self.history.water_today if self._key == "water_cost_today" else self.history.water_month
+        thousand = 1000 if self.rt.units.metric_volume else 1000 * LITRES_PER_GALLON   # per kL or per 1000 gal
+        return round(sum(used.values()) / thousand * price, 2)
+
+    @property
+    def last_reset(self):
+        today = dt_util.now().date()
+        return dt_util.start_of_local_day(today if self._key == "water_cost_today" else today.replace(day=1))
+
+
+OUTLET_SENSORS = (
+    SpruceSensorDescription(key="last_seen", translation_key="outlet_last_seen", device_class=SensorDeviceClass.TIMESTAMP,
+                            entity_category=EntityCategory.DIAGNOSTIC, value_fn=lambda o: o.get("last_seen")),
+    SpruceSensorDescription(key="signal", translation_key="zigbee_signal", device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                            native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+                            entity_category=EntityCategory.DIAGNOSTIC, value_fn=lambda o: o.get("signal")),
+)
+
+
+class SpruceOutletSensor(SpruceEntity, SensorEntity):
+    """When a Zigbee outlet / repeater last reported, and its signal."""
+
+    entity_description: SpruceSensorDescription
+
+    def __init__(self, entry, device: str, description: SpruceSensorDescription) -> None:
+        super().__init__(entry, entry.runtime_data.history, f"{device}_{description.key}")
+        self.entity_description = description
+        self.device = device
+        self._attr_device_info = outlet_device_info(self.rt, device)
+
+    @property
+    def native_value(self):
+        return self.entity_description.value_fn(self.history.outlets.get(self.device, {}))

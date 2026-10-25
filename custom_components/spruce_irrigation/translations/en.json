@@ -67,6 +67,14 @@
     "step": {
       "init": {
         "title": "Spruce options",
+        "menu_options": {
+          "general": "General",
+          "units": "Units",
+          "price": "Water price"
+        }
+      },
+      "general": {
+        "title": "General",
         "data": {
           "default_run_minutes": "Default zone run time",
           "status_interval": "Live status refresh",
@@ -78,6 +86,29 @@
           "status_interval": "How often to read which zones are running and the moisture sensors.",
           "history_interval": "How often to read water used, measured flow, settings and the activity log.",
           "fault_share": "A run measuring less than this share of the zone's usual flow is a flow fault (0.2 = 20%)."
+        }
+      },
+      "units": {
+        "title": "Units",
+        "description": "How values are shown. Spruce stores US units; the integration converts. Metric is the default; choose Custom to set each one below.",
+        "data": {
+          "units": "Unit system",
+          "unit_volume": "Water volume",
+          "unit_flow": "Flow rate",
+          "unit_rain": "Rain",
+          "unit_temperature": "Temperature",
+          "unit_wind": "Wind speed"
+        }
+      },
+      "price": {
+        "title": "Water price",
+        "description": "For the water cost sensors. Price per kL with metric volume, per 1000 gallons with US volume, in your Home Assistant currency.",
+        "data": {
+          "water_price": "Price",
+          "water_price_entity": "Or an entity holding the price"
+        },
+        "data_description": {
+          "water_price_entity": "Used instead of the price above when set (a sensor or input_number)."
         }
       }
     }
@@ -98,11 +129,26 @@
       "run_time": {
         "name": "{zone} run time"
       },
-      "schedule_rain_threshold": {
-        "name": "{schedule} rain skip threshold"
-      },
       "freeze_temperature": {
         "name": "Freeze skip temperature"
+      },
+      "rain_skip_threshold": {
+        "name": "Rain skip threshold"
+      },
+      "wind_skip_threshold": {
+        "name": "Wind skip threshold"
+      },
+      "manual_max_time": {
+        "name": "Maximum manual run time"
+      },
+      "pump_delay": {
+        "name": "Pump delay"
+      },
+      "flow_limit_high": {
+        "name": "Flow deviation upper limit"
+      },
+      "flow_limit_low": {
+        "name": "Flow deviation lower limit"
       }
     },
     "switch": {
@@ -120,6 +166,27 @@
       },
       "schedule_wind_skip": {
         "name": "{schedule} wind skip"
+      },
+      "concurrent_zones": {
+        "name": "Allow concurrent zones"
+      },
+      "zone_enabled": {
+        "name": "{zone} enabled"
+      },
+      "flow_stop_on_high": {
+        "name": "Stop on high flow"
+      },
+      "flow_pump_protect": {
+        "name": "Pump protect"
+      },
+      "flow_leak_sustained": {
+        "name": "Sustained leak detection"
+      },
+      "flow_leak_burst": {
+        "name": "Burst leak detection"
+      },
+      "outlet": {
+        "name": "Outlet"
       }
     },
     "button": {
@@ -131,6 +198,12 @@
       },
       "run_schedule": {
         "name": "Run {schedule}"
+      },
+      "cancel_pairing": {
+        "name": "Stop pairing"
+      },
+      "pause_until_tomorrow": {
+        "name": "Pause schedules until tomorrow"
       }
     },
     "binary_sensor": {
@@ -142,6 +215,9 @@
       },
       "flow_fault": {
         "name": "{zone} flow fault"
+      },
+      "outlet_silent": {
+        "name": "Not reporting"
       }
     },
     "sensor": {
@@ -211,6 +287,15 @@
       },
       "last_reading": {
         "name": "Last reading"
+      },
+      "water_cost_today": {
+        "name": "Water cost today"
+      },
+      "water_cost_month": {
+        "name": "Water cost this month"
+      },
+      "outlet_last_seen": {
+        "name": "Last report"
       }
     },
     "time": {
@@ -302,6 +387,10 @@
         "enabled": {
           "name": "Hibernate",
           "description": "On to hibernate."
+        },
+        "until": {
+          "name": "Until",
+          "description": "Schedules resume on this day (leave empty: until switched off)."
         }
       }
     },
@@ -331,7 +420,7 @@
     },
     "set_schedule_zone": {
       "name": "Set a zone in a schedule",
-      "description": "Changes how much a zone waters in a Spruce schedule (percent of the time Spruce works out), or takes it out of the schedule.",
+      "description": "Changes a zone in a Spruce schedule: how much it waters, whether it is in the schedule, and its rain / freeze / wind skips (per zone in connected schedules). A zone in a zone group changes with its group.",
       "fields": {
         "device_id": {
           "name": "Controller",
@@ -343,7 +432,7 @@
         },
         "zone": {
           "name": "Zone",
-          "description": "Zone name or number."
+          "description": "Zone name or number, or a zone group name."
         },
         "watering_percent": {
           "name": "Watering %",
@@ -352,7 +441,46 @@
         "enabled": {
           "name": "In this schedule",
           "description": "Off takes the zone out of the schedule."
+        },
+        "rain_skip": {
+          "name": "Rain skip",
+          "description": "Skip this zone when rain over the threshold is forecast."
+        },
+        "freeze_skip": {
+          "name": "Freeze skip",
+          "description": "Skip this zone below the freeze temperature."
+        },
+        "wind_skip": {
+          "name": "Wind skip",
+          "description": "Skip this zone above the wind threshold."
         }
+      }
+    },
+    "pause_schedules": {
+      "name": "Pause schedules",
+      "description": "Skips scheduled watering for some days (hibernate with an end date; manual watering still works).",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Resume after this many days (default 1)."
+        },
+        "until": {
+          "name": "Until",
+          "description": "Or resume on this day."
+        }
+      }
+    }
+  },
+  "selector": {
+    "units": {
+      "options": {
+        "metric": "Metric (L, mm, °C, km/h)",
+        "us": "US (gal, in, °F, mph)",
+        "custom": "Custom"
       }
     }
   }

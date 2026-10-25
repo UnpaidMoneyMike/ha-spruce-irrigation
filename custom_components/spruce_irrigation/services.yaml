@@ -53,6 +53,21 @@ set_hibernate:
       required: true
       selector:
         boolean:
+    until:
+      selector:
+        date:
+pause_schedules:
+  fields:
+    device_id: *device
+    days:
+      selector:
+        number:
+          min: 1
+          max: 365
+          unit_of_measurement: d
+    until:
+      selector:
+        date:
 pair_sensor:
   fields:
     device_id: *device
@@ -80,5 +95,14 @@ set_schedule_zone:
           max: 300
           unit_of_measurement: "%"
     enabled:
+      selector:
+        boolean:
+    rain_skip:
+      selector:
+        boolean:
+    freeze_skip:
+      selector:
+        boolean:
+    wind_skip:
       selector:
         boolean:

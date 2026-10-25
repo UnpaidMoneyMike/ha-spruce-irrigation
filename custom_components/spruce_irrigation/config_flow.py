@@ -20,6 +20,8 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -44,7 +46,14 @@ from .const import (
     DEFAULT_STATUS_INTERVAL,
     DOMAIN,
     MIN_STATUS_INTERVAL,
+    CONF_PRICE,
+    CONF_PRICE_ENTITY,
+    CONF_UNITS,
+    UNITS_CUSTOM,
+    UNITS_METRIC,
+    UNITS_US,
 )
+from .units import QUANTITIES
 
 KEY_SCHEMA = vol.Schema({vol.Required(CONF_API_KEY): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))})
 SIGN_IN_SCHEMA = vol.Schema({
@@ -143,15 +152,48 @@ class SpruceConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class SpruceOptionsFlow(OptionsFlow):
+    """Configure: general (run time, polling, flow-fault share), units (metric by default), water price."""
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="init", menu_options=["general", "units", "price"])
+
+    def _save(self, values: dict[str, Any]) -> ConfigFlowResult:
+        return self.async_create_entry(data={**self.config_entry.options, **values})
+
+    async def async_step_general(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(data={k: int(v) if k != CONF_FAULT_SHARE else float(v) for k, v in user_input.items()})
+            return self._save({k: int(v) if k != CONF_FAULT_SHARE else float(v) for k, v in user_input.items()})
         o = self.config_entry.options
         box = lambda lo, hi, step=1, unit=None: NumberSelector(NumberSelectorConfig(  # noqa: E731
             min=lo, max=hi, step=step, mode=NumberSelectorMode.BOX, unit_of_measurement=unit))
-        return self.async_show_form(step_id="init", data_schema=vol.Schema({
+        return self.async_show_form(step_id="general", data_schema=vol.Schema({
             vol.Required(CONF_DEFAULT_RUN_MINUTES, default=o.get(CONF_DEFAULT_RUN_MINUTES, DEFAULT_RUN_MINUTES)): box(1, 240, 1, "min"),
             vol.Required(CONF_STATUS_INTERVAL, default=o.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL)): box(MIN_STATUS_INTERVAL, 900, 5, "s"),
             vol.Required(CONF_HISTORY_INTERVAL, default=o.get(CONF_HISTORY_INTERVAL, DEFAULT_HISTORY_INTERVAL)): box(300, 3600, 60, "s"),
             vol.Required(CONF_FAULT_SHARE, default=o.get(CONF_FAULT_SHARE, DEFAULT_FAULT_SHARE)): box(0.05, 0.9, 0.05),
+        }))
+
+    async def async_step_units(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Metric (the default), US, or a unit per quantity (used when Custom is chosen)."""
+        if user_input is not None:
+            return self._save(user_input)
+        o = self.config_entry.options
+        choose = lambda options: SelectSelector(SelectSelectorConfig(options=options))  # noqa: E731
+        schema: dict = {vol.Required(CONF_UNITS, default=o.get(CONF_UNITS, UNITS_METRIC)): SelectSelector(
+            SelectSelectorConfig(options=[UNITS_METRIC, UNITS_US, UNITS_CUSTOM], translation_key="units"))}
+        for quantity, (key, metric, us) in QUANTITIES.items():
+            schema[vol.Required(key, default=o.get(key, metric))] = choose([str(metric), str(us)])
+        return self.async_show_form(step_id="units", data_schema=vol.Schema(schema))
+
+    async def async_step_price(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Water price per kL (per 1000 gal with US volume), or an entity holding the tariff."""
+        if user_input is not None:
+            values: dict[str, Any] = {CONF_PRICE: user_input.get(CONF_PRICE), CONF_PRICE_ENTITY: user_input.get(CONF_PRICE_ENTITY)}
+            return self._save(values)
+        o = self.config_entry.options
+        return self.async_show_form(step_id="price", data_schema=vol.Schema({
+            vol.Optional(CONF_PRICE, description={"suggested_value": o.get(CONF_PRICE)}): NumberSelector(NumberSelectorConfig(
+                min=0, max=1000, step=0.001, mode=NumberSelectorMode.BOX)),
+            vol.Optional(CONF_PRICE_ENTITY, description={"suggested_value": o.get(CONF_PRICE_ENTITY)}): EntitySelector(
+                EntitySelectorConfig(domain=["sensor", "input_number", "number"])),
         }))

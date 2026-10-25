@@ -99,3 +99,24 @@ async def test_reconfigure_sign_in(hass: HomeAssistant, mock_api) -> None:
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert entry.data[CONF_API_KEY] == "fresh"
+
+
+async def test_options_units_and_price(hass: HomeAssistant, mock_api) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=CONTROLLER, data={CONF_API_KEY: "k", CONF_CONTROLLER: CONTROLLER},
+                            options={"default_run_minutes": 10})
+    entry.add_to_hass(hass)
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    assert menu["type"] is FlowResultType.MENU
+    form = await hass.config_entries.options.async_configure(menu["flow_id"], {"next_step_id": "units"})
+    assert form["step_id"] == "units"
+    result = await hass.config_entries.options.async_configure(form["flow_id"], {
+        "units": "custom", "unit_volume": "L", "unit_flow": "L/min", "unit_rain": "in", "unit_temperature": "°C",
+        "unit_wind": "km/h"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options["units"] == "custom" and entry.options["unit_rain"] == "in"
+    assert entry.options["default_run_minutes"] == 10          # other options kept
+
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(menu["flow_id"], {"next_step_id": "price"})
+    await hass.config_entries.options.async_configure(form["flow_id"], {"water_price": 2.33})
+    assert entry.options["water_price"] == 2.33 and entry.options["units"] == "custom"
