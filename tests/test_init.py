@@ -482,7 +482,14 @@ async def test_instant_updates_option(hass: HomeAssistant, mock_api) -> None:
     entry = MockConfigEntry(domain=DOMAIN, unique_id=CONTROLLER, title="Test Spruce",
                             data={CONF_API_KEY: "k", CONF_CONTROLLER: CONTROLLER}, options={CONF_INSTANT: True})
     entry.add_to_hass(hass)
-    mock_api.zone_status_stream.return_value = 'data: {"zone_data": {"1": {"zone_state": 1}}}' + chr(10)
+    calls = []
+
+    async def stream(controller):   # one change, then nothing (as Spruce's stream when all is quiet)
+        calls.append(controller)
+        if len(calls) > 1:
+            await asyncio.sleep(3600)
+        return 'data: {"zone_data": {"1": {"zone_state": 1}}}' + chr(10)
+    mock_api.zone_status_stream.side_effect = stream
     with patch("custom_components.spruce_irrigation.live.STREAM_GAP", 0.01):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await asyncio.sleep(0.05)
