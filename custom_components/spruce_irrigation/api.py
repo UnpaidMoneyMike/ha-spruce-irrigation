@@ -276,6 +276,24 @@ class SpruceApi:
     async def cancel_pairing(self, controller: str) -> None:
         await self._spruceset(controller, "device,add,cancel")
 
+    # ---- flow baseline -------------------------------------------------------------------------------------------
+
+    async def current_baseline(self, controller: str) -> dict[str, dict]:
+        """Spruce's flow baseline per zone: {zone: {id, zone, gpm, DTepoch}}. Spruce keeps only the latest one."""
+        data = await self._request("GET", "app/api/current_baseline", {"deviceid": controller, "type": "flow"})
+        return data if isinstance(data, dict) else {}
+
+    async def start_baseline(self, controller: str) -> int:
+        """Run a flow baseline, as the app's "Baseline Now": every enabled zone runs 60 s (plus a 10 s pause) while
+        the flow is measured; Spruce applies the new values itself when it finishes."""
+        data = await self._request("POST", "app/api/baseline",
+                                   {"deviceid": controller, "current": "false", "flow": "true", "notify": 0}) or {}
+        baseline_id = _int(data.get("flow_baseline_id")) if isinstance(data, dict) else None
+        if not baseline_id:
+            raise SpruceError("Spruce didn't start a baseline")
+        await self._spruceset(controller, f"baseline,0,{baseline_id}")
+        return baseline_id
+
 
 APP_URL = "https://app.spruceirrigation.com/"
 

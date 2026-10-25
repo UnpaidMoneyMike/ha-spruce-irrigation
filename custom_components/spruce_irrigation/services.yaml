@@ -106,3 +106,50 @@ set_schedule_zone:
     wind_skip:
       selector:
         boolean:
+run_baseline:
+  fields:
+    device_id: *device
+record_baseline:
+  fields:
+    device_id: *device
+    date:
+      required: true
+      selector:
+        date:
+    flows:
+      required: true
+      example: '{"1": 16.07, "Front Low": 18.74}'
+      selector:
+        object:
+    unit:
+      selector:
+        select:
+          options:
+            - "L/min"
+            - "gal/min"
+    note:
+      selector:
+        text:
+review_baseline:
+  fields:
+    device_id: *device
+    accept:
+      required: true
+      selector:
+        boolean:
+    zones:
+      selector:
+        text:
+          multiple: true
+set_zone_heads:
+  fields:
+    device_id: *device
+    zone:
+      required: true
+      selector:
+        text:
+    heads:
+      required: true
+      example: '[{"model": "Hunter MP Rotator MP2000", "arc": 90, "quantity": 2}]'
+      selector:
+        object:

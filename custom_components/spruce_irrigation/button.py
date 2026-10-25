@@ -18,7 +18,9 @@ from .entity import SpruceEntity
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     rt = entry.runtime_data
-    entities: list[ButtonEntity] = [SpruceStop(entry), SprucePair(entry), SpruceCancelPair(entry), SprucePause(entry)]
+    entities: list[ButtonEntity] = [SpruceStop(entry), SprucePair(entry), SpruceCancelPair(entry), SprucePause(entry),
+                                    SpruceRunBaseline(entry), SpruceReviewBaseline(entry, True),
+                                    SpruceReviewBaseline(entry, False)]
     entities += [SpruceRunSchedule(entry, sid) for sid in rt.history.data.schedules]
     async_add_entities(entities)
 
@@ -104,3 +106,40 @@ class SpruceRunSchedule(_Button):
 
     async def async_press(self) -> None:
         await self._do(self.rt.api.schedule_on(self.controller, self.schedule_id))
+
+
+class SpruceRunBaseline(_Button):
+    """Runs a flow baseline: every enabled zone waters for 60 s (plus a 10 s pause) while its flow is measured;
+    Spruce applies the new values when it finishes, and the integration reviews them."""
+
+    _attr_translation_key = "run_baseline"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:chart-bell-curve-cumulative"
+
+    def __init__(self, entry) -> None:
+        super().__init__(entry, entry.runtime_data.history, "run_baseline")
+
+    async def async_press(self) -> None:
+        await self._do(self.rt.api.start_baseline(self.controller))
+
+
+class SpruceReviewBaseline(_Button):
+    """Accept the latest baseline for every zone waiting for review, or keep their previous values."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, entry, accept: bool) -> None:
+        key = "accept_baseline" if accept else "keep_previous_baseline"
+        super().__init__(entry, entry.runtime_data.history, key)
+        self._accept = accept
+        self._attr_translation_key = key
+        self._attr_icon = "mdi:check-all" if accept else "mdi:undo-variant"
+
+    @property
+    def available(self) -> bool:
+        return super().available and bool(self.rt.baselines and self.rt.baselines.pending())
+
+    async def async_press(self) -> None:
+        if not self.rt.baselines.decide(None, self._accept):
+            raise HomeAssistantError("No zones are waiting for a baseline review")
+        self.rt.baselines_changed()

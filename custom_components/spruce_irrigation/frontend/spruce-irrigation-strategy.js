@@ -11,7 +11,8 @@ const CONTROLLER_KEYS = ["status", "active_zone", "watering_ends", "water_today"
   "rain_skip_threshold", "wind_skip_threshold", "manual_max_time", "pump_delay", "concurrent_zones",
   "flow_limit_high", "flow_limit_low", "flow_stop_on_high", "flow_pump_protect", "flow_leak_sustained",
   "flow_leak_burst", "pause_until_tomorrow", "water_cost_today", "water_cost_month", "next_watering",
-  "watering_today", "plan"];
+  "watering_today", "plan", "run_baseline", "accept_baseline", "keep_previous_baseline", "last_baselined",
+  "baseline_review"];
 const SENSOR_KEYS = ["moisture", "temperature", "battery", "signal", "last_reading"];
 
 /** The integration's controllers, zones, schedules, moisture sensors and water statistics. */
@@ -198,6 +199,9 @@ function zonesView(c, zones) {
         tile(e.last_flow, { name: "Last flow" }),
         tile(e.usual_flow, { name: "Usual flow" }),
         tile(e.flow_fault, { name: "Flow fault" }),
+        tile(e.flow_check, { name: "Flow check", state_content: ["state", "deviation_percent"] }),
+        tile(e.baseline_flow, { name: "Baseline flow" }),
+        tile(e.design_flow, { name: "Design flow (heads)" }),
         c.stats.zones[z] ? waterChart("Water, last 30 days", [{ entity: c.stats.zones[z], name: zones[z] }], "day", 30)
           : null,
       ]);
@@ -284,6 +288,59 @@ function historyView(c, zones) {
   };
 }
 
+/** Flow health: baselines (run, review, history before and after) and each zone's flow against its design. */
+function flowView(c, zones) {
+  const e = c.entities;
+  const checks = byNumber(c.zones).filter((z) => c.zones[z].flow_check);
+  if (!checks.length && !e.last_baselined) return null;
+  const row = (z) => {
+    const id = c.zones[z].flow_check;
+    return `{% set a = states['${id}'].attributes %}| ${zones[z]} | {{ a.design_flow or '–' }} | {{ a.baseline_flow or '–' }}`
+      + ` | {{ a.last_flow or '–' }} | {{ state_translated('${id}') }}{% if a.deviation_percent is not none %}`
+      + ` ({{ '%+d' % a.deviation_percent }}%){% endif %} |`;
+  };
+  const unit = checks.length ? `{{ state_attr('${c.zones[checks[0]].flow_check}', 'unit') }}` : "";
+  const flowTable = checks.length ? {
+    type: "markdown", grid_options: { columns: "full" },
+    content: `Checked against the design flow from the zone's heads, else the accepted baseline (${unit}).\n\n`
+      + "| Zone | Design | Baseline | Last run | Check |\n|---|---|---|---|---|\n" + checks.map(row).join("\n"),
+  } : null;
+  // The last four baselines side by side, and the change from the one before to the latest
+  const history = e.last_baselined ? {
+    type: "markdown", grid_options: { columns: "full" },
+    content: `{% set b = state_attr('${e.last_baselined}', 'baselines') or [] %}{% set cols = b[:4] %}`
+      + "{% if not cols %}No baselines recorded yet.{% else %}"
+      + `Flow in {{ state_attr('${e.last_baselined}', 'unit') }}; ⚠ = waiting for review or kept at the previous value.\n\n`
+      + "| Zone |{% for s in cols %} {{ s.date }}{% if s.source == 'manual' %} ✎{% endif %} |{% endfor %}"
+      + "{% if cols | length > 1 %} Change |{% endif %}\n"
+      + "|---|{% for s in cols %}---|{% endfor %}{% if cols | length > 1 %}---|{% endif %}\n"
+      + "{% for z in cols[0].zones %}| {{ z }} |{% for s in cols %} {{ s.zones.get(z, '–') }}"
+      + "{% if s.review and z in s.review %} ⚠{% endif %} |{% endfor %}"
+      + "{% if cols | length > 1 %}{% set new = cols[0].zones.get(z) %}{% set old = cols[1].zones.get(z) %}"
+      + " {% if new is number and old %}{{ '%+d' % ((new - old) / old * 100) }}%{% else %}–{% endif %} |{% endif %}\n"
+      + "{% endfor %}{% endif %}",
+  } : null;
+  return {
+    type: "sections", title: "Flow health", path: "flow", icon: "mdi:water-check", max_columns: 4,
+    sections: [
+      section([heading("Flow baseline", "mdi:chart-bell-curve"),
+        tile(e.last_baselined, { name: "Last baseline" }), tile(e.baseline_review, { name: "Zones to review" }),
+        press(e.run_baseline, "Run a flow baseline? Every enabled zone waters for about a minute (roughly 1 min 10 s per zone)."),
+        press(e.accept_baseline, "Accept the new baseline for the zones waiting for review?"),
+        press(e.keep_previous_baseline, "Keep the previous baseline for the zones waiting for review?")]),
+      section([heading("Zone heads and design flow", "mdi:sprinkler-variant"), {
+        type: "markdown",
+        content: "Enter the heads in each zone (model, arc, how many) to get its **design flow**: a reference a leak "
+          + "can't move, so a baseline taken with a leak or a missing nozzle is caught.\n\n"
+          + "[Open the integration](/config/integrations/integration/spruce_irrigation) → **Add zone heads**; "
+          + "your own nozzles and drippers: **Add head model**.",
+      }]),
+      flowTable && section([heading("Flow check", "mdi:water-check"), flowTable], 4),
+      history && section([heading("Baseline history (before and after)", "mdi:history"), history], 4),
+    ].filter(Boolean),
+  };
+}
+
 function diagnosticsView(c) {
   const e = c.entities;
   return {
@@ -323,7 +380,7 @@ class SpruceIrrigationDashboardStrategy extends HTMLElement {
       const zones = zoneNames(hass, c);
       const schedules = scheduleNames(hass, c);
       const own = [overviewView(hass, c, zones, schedules), zonesView(c, zones), schedulesView(hass, c, zones, schedules),
-        historyView(c, zones), diagnosticsView(c)];
+        historyView(c, zones), flowView(c, zones), diagnosticsView(c)].filter(Boolean);
       if (controllers.length > 1) {
         for (const v of own) { v.title = `${c.name} ${v.title}`; v.path = `${v.path}-${i + 1}`; }
       }

@@ -79,13 +79,15 @@
           "default_run_minutes": "Default zone run time",
           "status_interval": "Live status refresh",
           "history_interval": "Water and flow history refresh",
-          "fault_share": "Flow fault threshold"
+          "fault_share": "Flow fault threshold",
+          "review_tolerance": "Baseline review tolerance"
         },
         "data_description": {
           "default_run_minutes": "Used when a zone valve is opened without a run time (each zone also has its own Run time setting).",
           "status_interval": "How often to read which zones are running and the moisture sensors.",
           "history_interval": "How often to read water used, measured flow, settings and the activity log.",
-          "fault_share": "A run measuring less than this share of the zone's usual flow is a flow fault (0.2 = 20%)."
+          "fault_share": "A run measuring less than this share of the zone's usual flow is a flow fault (0.2 = 20%).",
+          "review_tolerance": "A new flow baseline that moves a zone more than this share from its design flow (or its last accepted baseline) waits for your review (0.25 = 25%)."
         }
       },
       "units": {
@@ -117,6 +119,39 @@
     "flow_meter_fault": {
       "title": "Spruce flow meter may have failed",
       "description": "The latest runs of {zones} measured almost no water flow. Usually the flow meter or its wiring has failed (or its model setting is wrong in the Spruce app), so water use is not being counted. Check the meter; this notice clears itself once runs measure flow again."
+    },
+    "baseline_review": {
+      "title": "New flow baseline needs review",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Review the new flow baseline",
+            "description": "Spruce's new baseline moved these zones a lot from their design flow or their last accepted baseline:\n\n{zones}\n\nA big rise can be a leak or a missing nozzle; a big drop a blocked dripper, a closed valve or low pressure. Tick the zones whose new value is right; the others keep their previous value for flow checks.",
+            "data": {
+              "accept": "Accept the new value for"
+            }
+          }
+        },
+        "abort": {
+          "not_loaded": "Spruce isn't loaded; try again in a minute."
+        }
+      }
+    },
+    "no_flow_at_baseline": {
+      "title": "Zones measured no flow at the last baseline",
+      "description": "{zones} measured almost no water at Spruce's last flow baseline. The valve may not be opening, a pipe or dripper line may be blocked, or the zone has no heads. Spruce's flow alerts can't work for these zones until it is fixed and a new baseline is run."
+    },
+    "flow_calibration": {
+      "title": "Flow meter calibration out of range",
+      "description": "The flow meter is set to a custom model with offset {offset}, outside the 0–2 the Spruce app allows. Water figures are probably wrong; check the meter model in the Spruce app (Device Settings → Flow meter)."
+    },
+    "stale_baseline": {
+      "title": "Flow baseline is over a year old",
+      "description": "Spruce's flow baseline is from {date}. Heads, pressure and plants change; run a new baseline (button \"Run flow baseline\") so flow alerts compare with today's system."
+    },
+    "repeaters_silent": {
+      "title": "Zigbee repeaters not reporting",
+      "description": "{outlets} have not reported for over a week. They relay the moisture sensors' signal, so sensors further away go quiet too. Check they are plugged in and switched on; a reset repeater can be paired again with \"Pair moisture sensor\"."
     }
   },
   "entity": {
@@ -204,6 +239,15 @@
       },
       "pause_until_tomorrow": {
         "name": "Pause schedules until tomorrow"
+      },
+      "run_baseline": {
+        "name": "Run flow baseline"
+      },
+      "accept_baseline": {
+        "name": "Accept new baseline"
+      },
+      "keep_previous_baseline": {
+        "name": "Keep previous baseline"
       }
     },
     "binary_sensor": {
@@ -296,6 +340,29 @@
       },
       "outlet_last_seen": {
         "name": "Last report"
+      },
+      "last_baselined": {
+        "name": "Last flow baseline"
+      },
+      "baseline_review": {
+        "name": "Zones needing baseline review"
+      },
+      "zone_baseline_flow": {
+        "name": "{zone} baseline flow"
+      },
+      "zone_design_flow": {
+        "name": "{zone} design flow"
+      },
+      "zone_flow_check": {
+        "name": "{zone} flow check",
+        "state": {
+          "ok": "OK",
+          "high": "Higher than expected",
+          "low": "Lower than expected",
+          "no_flow": "No flow",
+          "no_reference": "No reference",
+          "no_run": "Not run yet"
+        }
       }
     },
     "time": {
@@ -473,6 +540,78 @@
           "description": "Or resume on this day."
         }
       }
+    },
+    "run_baseline": {
+      "name": "Run flow baseline",
+      "description": "Runs every enabled zone for 60 s (plus a 10 s pause) to measure its flow; Spruce applies the new baseline when it finishes and the integration reviews it.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        }
+      }
+    },
+    "record_baseline": {
+      "name": "Record a baseline",
+      "description": "Adds an older flow baseline (e.g. from paper or the Spruce app) to the history.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "date": {
+          "name": "Date",
+          "description": "When it was measured."
+        },
+        "flows": {
+          "name": "Flows",
+          "description": "Flow per zone: zone name or number, then the flow (YAML, e.g. 1: 16.07)."
+        },
+        "unit": {
+          "name": "Unit",
+          "description": "Unit of the flows (default: the integration's flow unit)."
+        },
+        "note": {
+          "name": "Note",
+          "description": "Optional note kept with it."
+        }
+      }
+    },
+    "review_baseline": {
+      "name": "Review the new baseline",
+      "description": "Accept the latest baseline for zones waiting for review, or keep their previous values.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "accept": {
+          "name": "Accept",
+          "description": "On: use the new values; off: keep the previous ones."
+        },
+        "zones": {
+          "name": "Zones",
+          "description": "Zones (names or numbers); default: all waiting."
+        }
+      }
+    },
+    "set_zone_heads": {
+      "name": "Set zone heads",
+      "description": "Sets the heads installed in a zone (replaces what is there; an empty list removes them).",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "zone": {
+          "name": "Zone",
+          "description": "Zone name or number."
+        },
+        "heads": {
+          "name": "Heads",
+          "description": "Rows with model (built-in key, custom:<id>, or brand and model as shown), arc in degrees and quantity (metres for drip line)."
+        }
+      }
     }
   },
   "selector": {
@@ -481,6 +620,98 @@
         "metric": "Metric (L, mm, °C, km/h)",
         "us": "US (gal, in, °F, mph)",
         "custom": "Custom"
+      }
+    },
+    "head_kind": {
+      "options": {
+        "per_360": "Spray or rotating nozzle (flow at 360°)",
+        "per_head": "Rotor (flow per head)",
+        "per_emitter": "Drip emitter (flow per emitter)",
+        "per_metre": "Drip line (flow per metre)"
+      }
+    }
+  },
+  "config_subentries": {
+    "head_model": {
+      "title": "Head model",
+      "entry_type": "Head model",
+      "initiate_flow": {
+        "user": "Add head model"
+      },
+      "step": {
+        "user": {
+          "title": "Add a head model",
+          "description": "A sprinkler head, nozzle, dripper or drip line not in the built-in list, or a built-in one with your own figures. Start blank or from a built-in model.",
+          "data": {
+            "start_from": "Start from"
+          }
+        },
+        "model": {
+          "title": "Head model",
+          "description": "Flow is per {per_360} at a full circle for sprays and rotating nozzles (it scales with the arc you set on a zone), per {per_360} per head for rotors, and per {per_hour} per emitter or per metre for drip. Take it from the maker's chart at your pressure.",
+          "data": {
+            "brand": "Brand",
+            "model": "Model",
+            "kind": "Type",
+            "flow": "Flow",
+            "pressure_bar": "Rated pressure",
+            "radius_m": "Radius"
+          },
+          "data_description": {
+            "radius_m": "For the precipitation rate (sprays, rotating nozzles and rotors)."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved."
+      }
+    },
+    "zone_heads": {
+      "title": "Zone heads",
+      "entry_type": "Zone heads",
+      "initiate_flow": {
+        "user": "Add zone heads"
+      },
+      "step": {
+        "user": {
+          "title": "Zone heads",
+          "description": "Which zone are you entering the heads for?",
+          "data": {
+            "zone": "Zone"
+          }
+        },
+        "heads": {
+          "title": "Heads in {zone}",
+          "description": "{rows}\n\nDesign flow: **{total} L/min**",
+          "menu_options": {
+            "add_head": "Add heads",
+            "remove_head": "Remove heads",
+            "save": "Save"
+          }
+        },
+        "add_head": {
+          "title": "Add heads",
+          "description": "Your own models are marked ★.",
+          "data": {
+            "model": "Model",
+            "arc": "Arc",
+            "quantity": "How many (metres for drip line)"
+          },
+          "data_description": {
+            "arc": "For sprays and rotating nozzles: 90 for a corner, 180 for an edge, 360 for a full circle."
+          }
+        },
+        "remove_head": {
+          "title": "Remove heads",
+          "data": {
+            "rows": "Rows to remove"
+          }
+        }
+      },
+      "abort": {
+        "not_loaded": "Spruce isn't loaded; try again in a minute.",
+        "all_zones_done": "Every zone already has its heads; open a zone's entry to change them.",
+        "reconfigure_successful": "Saved."
       }
     }
   }

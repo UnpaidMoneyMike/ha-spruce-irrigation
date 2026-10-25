@@ -26,6 +26,10 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 | **Watering plan** | A **calendar** with Spruce's plan for each enabled schedule, about 18 days ahead plus the last few days: each watering from start to finish (with minutes per zone), and days skipped for rain, freeze, wind or hibernation as all-day notes. **Next watering** (start time, schedule, minutes, finish, minutes per zone) and **Watering today** (watering, skipping for rain / freeze / wind, not needed, nothing planned) sensors; each schedule's **watering days** (every day, every N days, even/odd days, weekdays) |
 | **Live status** (every minute) | Status (idle, watering, paused, pump delay, cycle and soak, hibernating, offline), active zone, watering ends, watering, online, last seen |
 | **Water** | Water today and this month (controller and per zone), usable in the Energy dashboard; per-zone last measured flow, usual flow and last run; **water cost** today and this month once a price is set in the options |
+| **Flow baseline** | **Run flow baseline** button (every enabled zone runs ~1 minute while its flow is measured), each zone's **baseline flow**, **last flow baseline** with the history of every baseline seen (Spruce keeps only the latest; older ones can be added with `record_baseline`), and a notification with the biggest changes when a new one lands |
+| **Zone heads and design flow** | Enter the heads in each zone (Settings → Devices & services → Spruce Irrigation → **Add zone heads**: model × arc × how many) to get its **design flow** and precipitation rate. A built-in library of common nozzles, drippers and drip line, plus your own models (**Add head model**: brand, model, type, flow, pressure, radius) that you can edit or delete like any entry |
+| **Baseline review** | A new baseline that moves a zone more than 25% (option) from its design flow, or from its last accepted baseline, is held for review — a leak or a missing nozzle shouldn't quietly become "normal". **Accept** or **Keep previous** from Repairs, the buttons or the `review_baseline` service. Each zone's **flow check** (OK, higher / lower than expected, no flow) compares its last run with the design flow, else the accepted baseline |
+| **Health notices** | Repairs for zones measuring no flow at baseline, a flow-meter calibration outside Spruce's own range, a baseline over a year old, and Zigbee repeaters not reporting |
 | **Flow faults** | Per-zone *flow fault* when a run measures far less than the zone's usual flow (failed meter, closed valve, broken pipe); a **Repairs** notice when several zones show it |
 | **Moisture sensors** | A device per sensor: moisture, temperature, battery voltage, Zigbee signal, last reading; unavailable when a sensor has gone quiet for 2 days |
 | **Outlets** | Spruce smart outlets (which also repeat the sensors' Zigbee signal) as their own devices: a **socket** switch, last report, signal and **not reporting** (no report for 7 days) |
@@ -38,7 +42,7 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 
 A ready-made dashboard comes with the integration: Settings → Dashboards → **Add dashboard** → under
 *Community dashboards* pick **Spruce Irrigation** (Home Assistant 2026.5 or later). It has Overview, Zones,
-Schedules, History and Diagnostics views, built from your controller's entities and water statistics each time
+Schedules, History, Flow health and Diagnostics views, built from your controller's entities and water statistics each time
 it opens, so new zones, schedules and sensors appear by themselves. To change it by hand, open the dashboard →
 ✏ → **Take control**. After installing or updating the integration and restarting, reload Home Assistant in each browser
 and in the companion app (app: Settings → Companion app → Troubleshooting → Reset frontend cache, or close
@@ -55,7 +59,8 @@ strategy:
 
 `spruce_irrigation.run_zone` (valve target, minutes), `stop_zone`, `run_all_zones` (minutes),
 `run_schedule` / `stop_schedule` (schedule name as in the Spruce app), `stop`, `set_hibernate`,
-`pause_schedules` (days or until a date), `pair_sensor`, `import_history` (re-import water statistics from a date),
+`pause_schedules` (days or until a date), `run_baseline`, `record_baseline` (an older baseline, per zone),
+`review_baseline` (accept or keep previous), `set_zone_heads` (a zone's heads, for scripts), `pair_sensor`, `import_history` (re-import water statistics from a date),
 `set_schedule_zone` (a zone's watering %, whether it is included and its rain / freeze / wind skips, in a schedule;
 a zone in a zone group changes with its group, or give the group's name).
 
@@ -81,7 +86,8 @@ entry. If you change your Spruce password the key changes and Home Assistant wil
 ## Options
 
 - **General:** default zone run time, live status refresh (default 60 s), water/flow history refresh (default 15 min)
-  and the flow-fault threshold (default: a run under 20% of the zone's usual flow).
+  the flow-fault threshold (default: a run under 20% of the zone's usual flow) and the baseline review tolerance
+  (default 25%).
 - **Units:** metric (default: L, L/min, mm, °C, km/h), US (gal, gal/min, in, °F, mph), or custom per quantity.
   Spruce stores US units; the integration converts both ways.
 - **Water price:** per kL (per 1000 gal with US volume) in your Home Assistant currency, or an entity holding

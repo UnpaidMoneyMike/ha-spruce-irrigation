@@ -5,7 +5,8 @@
     "frontend",
     "http",
     "lovelace",
-    "recorder"
+    "recorder",
+    "repairs"
   ],
   "codeowners": [
     "@UnpaidMoneyMike"
@@ -16,5 +17,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/UnpaidMoneyMike/ha-spruce-irrigation/issues",
   "requirements": [],
-  "version": "0.6.0"
+  "version": "0.7.0"
 }

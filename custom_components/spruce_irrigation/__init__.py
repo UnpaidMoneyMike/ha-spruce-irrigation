@@ -5,38 +5,47 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
+from types import MappingProxyType
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import Platform
 from homeassistant.core import HassJob, HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
 from .api import SpruceApi, SpruceError
+from .baselines import BaselineStore
 from .const import (
     CONF_API_KEY,
     CONF_CONTROLLER,
     DOMAIN,
+    LITRES_PER_GALLON,
     SERVICE_HIBERNATE,
     SERVICE_IMPORT_HISTORY,
     SERVICE_PAIR_SENSOR,
     SERVICE_RUN_ALL,
     SERVICE_RUN_SCHEDULE,
     SERVICE_PAUSE_SCHEDULES,
+    SERVICE_RECORD_BASELINE,
+    SERVICE_REVIEW_BASELINE,
+    SERVICE_RUN_BASELINE,
     SERVICE_SET_SCHEDULE_ZONE,
+    SERVICE_SET_ZONE_HEADS,
     SERVICE_STOP,
     SERVICE_STOP_SCHEDULE,
     STRATEGY_FILE,
     STRATEGY_URL,
 )
 from .coordinator import SpruceHistoryCoordinator, SpruceStatusCoordinator
+from .heads import SUBENTRY_ZONE_HEADS, library, zone_heads
 from .units import Units
 from .statistics import async_import_history, async_update_recent_statistics
 
@@ -57,6 +66,12 @@ class SpruceRuntime:
     run_minutes: dict[int, float] = field(default_factory=dict)   # per-zone manual run time (number entities)
     device_id: str | None = None   # the controller's device registry id (moisture sensor devices link to it)
     units: Units = field(default_factory=lambda: Units({}))
+    baselines: BaselineStore | None = None
+
+    def baselines_changed(self) -> None:
+        """After a baseline is recorded, accepted or kept: re-check the review notice and update the entities."""
+        self.history.review_baseline(self.history.data)
+        self.history.async_update_listeners()
 
     def optimistic(self, zone: int | None, change: dict | None) -> None:
         """Show a command's effect straight away (Spruce's cloud takes a few seconds to catch up), then confirm it
@@ -152,9 +167,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> bo
     controller = entry.data[CONF_CONTROLLER]
     status = SpruceStatusCoordinator(hass, entry, api, controller)
     history = SpruceHistoryCoordinator(hass, entry, api, controller)
+    baselines = BaselineStore(hass, entry.entry_id)
+    await baselines.async_load()
+    history.baselines = baselines
     await history.async_config_entry_first_refresh()
     await status.async_config_entry_first_refresh()
-    entry.runtime_data = SpruceRuntime(api, controller, status, history, units=Units(entry.options))
+    entry.runtime_data = SpruceRuntime(api, controller, status, history, units=Units(entry.options), baselines=baselines)
 
     entry.runtime_data.device_id = dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, controller)}, manufacturer="Plaid Systems (Spruce)",
@@ -222,7 +240,14 @@ async def _options_updated(hass: HomeAssistant, entry: SpruceConfigEntry) -> Non
     await hass.config_entries.async_reload(entry.entry_id)
 
 
+async def async_remove_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> None:
+    """Removing the integration also removes its stored baseline history."""
+    await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.baselines").async_remove()
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> bool:
+    if entry.runtime_data.baselines:
+        await entry.runtime_data.baselines.async_flush()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
@@ -239,6 +264,19 @@ SCHEMAS = {
                                          vol.Exclusive("until", "until"): cv.date}),
     SERVICE_PAIR_SENSOR: vol.Schema({DEVICE: cv.string}),
     SERVICE_IMPORT_HISTORY: vol.Schema({DEVICE: cv.string, vol.Optional("start_date"): cv.date}),
+    SERVICE_RUN_BASELINE: vol.Schema({DEVICE: cv.string}),
+    SERVICE_RECORD_BASELINE: vol.Schema({
+        DEVICE: cv.string, vol.Required("date"): cv.date,
+        vol.Required("flows"): vol.Schema({cv.string: vol.All(vol.Coerce(float), vol.Range(min=0, max=1000))}),
+        vol.Optional("unit"): vol.In(["L/min", "gal/min"]), vol.Optional("note"): cv.string}),
+    SERVICE_REVIEW_BASELINE: vol.Schema({DEVICE: cv.string, vol.Required("accept"): cv.boolean,
+                                         vol.Optional("zones"): vol.All(cv.ensure_list, [cv.string])}),
+    SERVICE_SET_ZONE_HEADS: vol.Schema({
+        DEVICE: cv.string, vol.Required("zone"): cv.string,
+        vol.Required("heads"): vol.All(cv.ensure_list, [vol.Schema({
+            vol.Required("model"): cv.string,
+            vol.Optional("arc"): vol.All(vol.Coerce(float), vol.Range(min=1, max=360)),
+            vol.Required("quantity"): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=10000))})])}),
     SERVICE_SET_SCHEDULE_ZONE: vol.Schema({
         DEVICE: cv.string, vol.Required("schedule"): cv.string, vol.Required("zone"): cv.string,
         vol.Optional("watering_percent"): vol.All(vol.Coerce(int), vol.Range(min=1, max=300)),
@@ -283,6 +321,24 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     raise ServiceValidationError("Give at least one of watering_percent, enabled, rain_skip, freeze_skip, wind_skip")
                 await rt.async_set_schedule_zones(sid, zones, values, local)
                 return
+            elif call.service == SERVICE_RUN_BASELINE:
+                await api.start_baseline(ctrl)
+            elif call.service == SERVICE_RECORD_BASELINE:
+                gallons = call.data.get("unit", "gal/min" if rt.units.unit["flow"] == "gal/min" else "L/min") == "gal/min"
+                flows = {_zone(rt, z): v * (LITRES_PER_GALLON if gallons else 1) for z, v in call.data["flows"].items()}
+                at = dt_util.start_of_local_day(call.data["date"])
+                rt.baselines.record(at, flows, call.data.get("note"))
+                rt.baselines_changed()
+                return
+            elif call.service == SERVICE_REVIEW_BASELINE:
+                zones = [_zone(rt, z) for z in call.data["zones"]] if call.data.get("zones") else None
+                if not rt.baselines.decide(zones, call.data["accept"]):
+                    raise ServiceValidationError("No zones are waiting for a baseline review")
+                rt.baselines_changed()
+                return
+            elif call.service == SERVICE_SET_ZONE_HEADS:
+                set_zone_heads(hass, entry, _zone(rt, call.data["zone"]), call.data["heads"])
+                return
             elif call.service == SERVICE_IMPORT_HISTORY:
                 start: date | None = call.data.get("start_date")
                 await async_import_history(hass, entry, start)
@@ -290,7 +346,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         except SpruceError as err:
             raise HomeAssistantError(str(err)) from err
         rt.optimistic(None, {"on": False} if call.service == SERVICE_STOP else None)
-        if call.service in (SERVICE_HIBERNATE, SERVICE_PAUSE_SCHEDULES, SERVICE_RUN_SCHEDULE, SERVICE_STOP_SCHEDULE):
+        if call.service in (SERVICE_HIBERNATE, SERVICE_PAUSE_SCHEDULES, SERVICE_RUN_SCHEDULE, SERVICE_STOP_SCHEDULE,
+                            SERVICE_RUN_BASELINE):
             await rt.history.async_request_refresh()
 
     for name, schema in SCHEMAS.items():
@@ -344,6 +401,29 @@ def _entry_for(hass: HomeAssistant, device_id: str | None) -> SpruceConfigEntry:
     if len(entries) != 1:
         raise ServiceValidationError("Choose the Spruce controller (device) to use" if entries else "Spruce is not set up")
     return entries[0]
+
+
+def set_zone_heads(hass: HomeAssistant, entry: SpruceConfigEntry, zone: int, rows: list[dict]) -> None:
+    """Set a zone's installed heads (its zone-heads subentry); no rows removes them."""
+    models = library(entry)
+    by_label = {m.label.lower(): key for key, m in models.items()}
+    heads = []
+    for row in rows:
+        key = row["model"] if row["model"] in models else by_label.get(row["model"].strip().lower())
+        if key is None:
+            raise ServiceValidationError(f"No head model '{row['model']}' (add it under the integration's "
+                                         "Add head model, or use a built-in one)")
+        heads.append({"model": key, "arc": row.get("arc", 360), "quantity": row["quantity"]})
+    existing = zone_heads(entry).get(zone)
+    name = entry.runtime_data.history.data.zones[zone].name
+    if existing and not heads:
+        hass.config_entries.async_remove_subentry(entry, existing[0])
+    elif existing:
+        hass.config_entries.async_update_subentry(entry, entry.subentries[existing[0]], data={"zone": zone, "heads": heads})
+    elif heads:
+        hass.config_entries.async_add_subentry(entry, ConfigSubentry(
+            data=MappingProxyType({"zone": zone, "heads": heads}), subentry_type=SUBENTRY_ZONE_HEADS,
+            title=name, unique_id=f"zone_{zone}"))
 
 
 def _zones(rt: SpruceRuntime, zone: str) -> list[int]:

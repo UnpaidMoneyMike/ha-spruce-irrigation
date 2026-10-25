@@ -93,6 +93,11 @@ def fake_api() -> AsyncMock:
         {"ymd": today.isoformat(), "precip_in": 0.2, "temp_min": 59, "temp_max": 77},
     ]
     api.events.return_value = []
+    api.current_baseline.return_value = {   # Spruce's latest flow baseline, 5 days ago
+        "1": {"id": "7", "zone": "1", "gpm": 8.0, "DTepoch": str(epoch - 86400 * 5)},
+        "2": {"id": "7", "zone": "2", "gpm": 2.0, "DTepoch": str(epoch - 86400 * 5)},
+    }
+    api.start_baseline.return_value = 8
     api.outlet_status.return_value = {OUTLET: {"device_id": OUTLET, "current_state": "0", "epoch_time": str(epoch - 86400 * 30),
                                                "duration": "0", "schedule_id": "0", "signal_strength": "-70"}}
     return api

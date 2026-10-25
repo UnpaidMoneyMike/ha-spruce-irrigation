@@ -17,6 +17,8 @@ DEFAULT_STATUS_INTERVAL = 60        # seconds: zone status, run status, moisture
 DEFAULT_HISTORY_INTERVAL = 900      # seconds: water per day, measured flow, activity log, settings
 DEFAULT_FAULT_SHARE = 0.2           # a run measuring under 20% of the zone's usual flow is a flow fault
 MIN_STATUS_INTERVAL = 30
+CONF_REVIEW_TOLERANCE = "review_tolerance"
+DEFAULT_REVIEW_TOLERANCE = 0.25     # a new baseline more than 25% from design / the accepted one needs review
 
 # Options: units and water price
 CONF_UNITS = "units"                # metric (default) / us / custom
@@ -36,7 +38,8 @@ WORKING_GPM = 0.05
 LITRES_PER_GALLON = 3.785411784
 MM_PER_INCH = 25.4
 FLOW_PORTS = (101, 102)             # flow-meter ports appear as zones 101 and 102 in Spruce's settings
-OUTLET_SILENT = timedelta(days=7)   # a Zigbee outlet / repeater not heard from for this long is reported
+OUTLET_SILENT = timedelta(days=7)
+BASELINE_STALE = timedelta(days=365)  # a flow baseline older than this is reported   # a Zigbee outlet / repeater not heard from for this long is reported
 
 EVENT_SPRUCE = f"{DOMAIN}_event"    # fired for each new activity-log entry
 
@@ -51,6 +54,10 @@ SERVICE_PAIR_SENSOR = "pair_sensor"
 SERVICE_IMPORT_HISTORY = "import_history"
 SERVICE_SET_SCHEDULE_ZONE = "set_schedule_zone"
 SERVICE_PAUSE_SCHEDULES = "pause_schedules"
+SERVICE_RUN_BASELINE = "run_baseline"
+SERVICE_RECORD_BASELINE = "record_baseline"
+SERVICE_REVIEW_BASELINE = "review_baseline"
+SERVICE_SET_ZONE_HEADS = "set_zone_heads"
 
 STRATEGY_FILE = "spruce-irrigation-strategy.js"   # the dashboard, in frontend/
 STRATEGY_URL = f"/{DOMAIN}/{STRATEGY_FILE}"

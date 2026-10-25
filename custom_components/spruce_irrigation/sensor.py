@@ -27,7 +27,15 @@ from homeassistant.util import dt as dt_util
 
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import CONF_PRICE, CONF_PRICE_ENTITY, LITRES_PER_GALLON, SENSOR_STALE
+from .const import (
+    CONF_PRICE,
+    CONF_PRICE_ENTITY,
+    CONF_REVIEW_TOLERANCE,
+    DEFAULT_REVIEW_TOLERANCE,
+    LITRES_PER_GALLON,
+    SENSOR_STALE,
+)
+from .heads import design
 from .entity import SpruceEntity, SpruceMoistureEntity, SpruceZoneEntity, outlet_device_info, planned_days
 
 STATES = ["idle", "watering", "paused", "pump_delay", "cycle_soak", "hibernating", "offline"]
@@ -170,12 +178,130 @@ def _round(v):
     return round(v, 2) if v is not None else None
 
 
+# ---- flow baseline, design flow and flow check -------------------------------------------------------------------
+
+CHECKS = ["ok", "high", "low", "no_flow", "no_reference", "no_run"]
+
+
+def _flow(rt, lpm):
+    return round(rt.units.from_metric("flow", lpm), 2) if lpm is not None else None
+
+
+def _zone_name(rt, z) -> str:
+    zones = rt.history.data.zones
+    return zones[z].name if z in zones else f"Zone {z}"
+
+
+def _design(rt, z):
+    d = design(rt.history.entry).get(z)
+    return d if d and d.lpm > 0 else None
+
+
+def _reference(rt, z) -> tuple[float | None, str | None]:
+    """What a zone's flow is checked against: its design flow (from its heads), else its accepted baseline."""
+    if d := _design(rt, z):
+        return d.lpm, "design"
+    ref = rt.baselines.reference(z) if rt.baselines else None
+    return (ref, "baseline") if ref else (None, None)
+
+
+def _check(a) -> str:
+    rt, z = a
+    ref, _ = _reference(rt, z)
+    last = rt.history.data.last_run.get(z, {}).get("lpm")
+    if ref is None:
+        return "no_reference"
+    if last is None:
+        return "no_run"
+    tolerance = rt.history.entry.options.get(CONF_REVIEW_TOLERANCE, DEFAULT_REVIEW_TOLERANCE)
+    if last < 0.1 * ref:
+        return "no_flow"
+    deviation = (last - ref) / ref
+    return "high" if deviation > tolerance else "low" if deviation < -tolerance else "ok"
+
+
+def _check_attrs(a) -> dict[str, Any]:
+    rt, z = a
+    ref, source = _reference(rt, z)
+    last = rt.history.data.last_run.get(z, {}).get("lpm")
+    d = _design(rt, z)
+    return {"reference": source, "reference_flow": _flow(rt, ref), "last_flow": _flow(rt, last),
+            "deviation_percent": round((last - ref) / ref * 100) if ref and last is not None else None,
+            "design_flow": _flow(rt, d.lpm if d else None),
+            "baseline_flow": _flow(rt, rt.history.data.baseline.get(z, {}).get("lpm")),
+            "unit": rt.units.unit["flow"]}
+
+
+def _baseline_attrs(a) -> dict[str, Any]:
+    rt, z = a
+    b = rt.history.data.baseline.get(z, {})
+    latest = rt.baselines.latest if rt.baselines else None
+    return {"baseline_id": b.get("id"), "baselined": b["at"].isoformat() if b.get("at") else None,
+            "accepted_flow": _flow(rt, rt.baselines.reference(z) if rt.baselines else None),
+            "review": (latest or {}).get("review", {}).get(z)}
+
+
+def _design_attrs(a) -> dict[str, Any] | None:
+    rt, z = a
+    d = design(rt.history.entry).get(z)
+    if not d:
+        return None
+    return {"heads": [f"{r['heads']}: {_flow(rt, r['flow_lpm'])} {rt.units.unit['flow']}" for r in d.rows],
+            "precipitation_rate_mm_h": d.precipitation_mm_h, "missing_models": d.missing or None}
+
+
+def _last_baselined(rt):
+    stamps = [b["at"] for b in rt.history.data.baseline.values() if b.get("at")]
+    return max(stamps) if stamps else None
+
+
+def _history_attrs(rt) -> dict[str, Any]:
+    """The baselines kept (newest first, up to 12), each zone's flow in the chosen unit."""
+    if not rt.baselines:
+        return {}
+    return {"unit": rt.units.unit["flow"], "baselines": [
+        {"id": snap["id"], "date": snap["at"][:10], "source": snap["source"], "note": snap.get("note"),
+         "zones": {_zone_name(rt, z): _flow(rt, v) for z, v in sorted(snap["zones"].items())},
+         "review": {_zone_name(rt, z): v for z, v in sorted(snap["review"].items()) if v != "accepted"} or None}
+        for snap in reversed(rt.baselines.snapshots[-12:])]}
+
+
+def _review_attrs(rt) -> dict[str, Any]:
+    pending = rt.baselines.pending() if rt.baselines else {}
+    return {"unit": rt.units.unit["flow"], "zones": {
+        _zone_name(rt, z): {"previous": _flow(rt, p["previous"]), "new": _flow(rt, p["new"])}
+        for z, p in sorted(pending.items())}}
+
+
+BASELINE_CONTROLLER_SENSORS = (
+    SpruceSensorDescription(key="last_baselined", translation_key="last_baselined", device_class=SensorDeviceClass.TIMESTAMP,
+                            icon="mdi:chart-bell-curve", value_fn=_last_baselined, attrs_fn=_history_attrs),
+    SpruceSensorDescription(key="baseline_review", translation_key="baseline_review", icon="mdi:clipboard-check-outline",
+                            native_unit_of_measurement="zones",
+                            value_fn=lambda rt: len(rt.baselines.pending()) if rt.baselines else 0, attrs_fn=_review_attrs),
+)
+
+BASELINE_ZONE_SENSORS = (
+    SpruceSensorDescription(key="baseline_flow", translation_key="zone_baseline_flow", device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
+                            native_unit_of_measurement=LPM, suggested_display_precision=1, quantity="flow",
+                            state_class=SensorStateClass.MEASUREMENT,
+                            value_fn=lambda a: _round(a[0].history.data.baseline.get(a[1], {}).get("lpm")),
+                            attrs_fn=_baseline_attrs),
+    SpruceSensorDescription(key="design_flow", translation_key="zone_design_flow", device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
+                            native_unit_of_measurement=LPM, suggested_display_precision=1, quantity="flow",
+                            value_fn=lambda a: _round(getattr(_design(*a), "lpm", None)), attrs_fn=_design_attrs),
+    SpruceSensorDescription(key="flow_check", translation_key="zone_flow_check", device_class=SensorDeviceClass.ENUM,
+                            options=CHECKS, icon="mdi:water-check", value_fn=_check, attrs_fn=_check_attrs),
+)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     rt = entry.runtime_data
-    entities: list[SensorEntity] = [SpruceControllerSensor(entry, d) for d in CONTROLLER_SENSORS]
+    entities: list[SensorEntity] = [SpruceControllerSensor(entry, d)
+                                    for d in CONTROLLER_SENSORS + BASELINE_CONTROLLER_SENSORS]
     for z, zone in rt.history.data.zones.items():
         if zone.enabled:
-            entities += [SpruceZoneSensor(entry, z, d) for d in ZONE_SENSORS]
+            entities += [SpruceZoneSensor(entry, z, d) for d in ZONE_SENSORS + BASELINE_ZONE_SENSORS]
     for sid in rt.status.data.sensors:
         entities += [SpruceMoistureSensor(entry, sid, d) for d in MOISTURE_SENSORS]
     entities += [SpruceCostSensor(entry, key) for key in ("water_cost_today", "water_cost_month")]
@@ -240,6 +366,11 @@ class SpruceZoneSensor(_UnitsMixin, SpruceZoneEntity, SensorEntity):
     @property
     def native_value(self):
         return self._convert(self.entity_description.value_fn((self.rt, self.zone)))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        fn = self.entity_description.attrs_fn
+        return fn((self.rt, self.zone)) if fn else None
 
 
 class SpruceMoistureSensor(_UnitsMixin, SpruceMoistureEntity, SensorEntity):

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -15,20 +16,26 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import SpruceApi, SpruceAuthError, SpruceError
+from .baselines import NO_FLOW_LPM, BaselineStore
 from .const import (
+    BASELINE_STALE,
     CONF_FAULT_SHARE,
     CONF_HISTORY_INTERVAL,
+    CONF_REVIEW_TOLERANCE,
     CONF_STATUS_INTERVAL,
     DEFAULT_FAULT_SHARE,
     DEFAULT_HISTORY_INTERVAL,
+    DEFAULT_REVIEW_TOLERANCE,
     DEFAULT_STATUS_INTERVAL,
     DOMAIN,
     EVENT_LOOKBACK,
     EVENT_SPRUCE,
     HISTORY_DAYS,
     LITRES_PER_GALLON,
+    OUTLET_SILENT,
     WORKING_GPM,
 )
+from .heads import design
 
 _LOGGER = logging.getLogger(__name__)
 FLOW_RUNS_FOR_USUAL = 40        # a zone's usual flow is the median of its last working runs
@@ -85,6 +92,7 @@ class HistoryData:
     usual_lpm: dict[int, float] = field(default_factory=dict)          # zone -> median measured flow
     flow_fault: dict[int, bool] = field(default_factory=dict)          # zone's last run measured ~no flow
     network: dict[str, Any] = field(default_factory=dict)
+    baseline: dict[int, dict] = field(default_factory=dict)            # Spruce's current baseline: zone -> {id, lpm, at}
 
 
 class SpruceStatusCoordinator(DataUpdateCoordinator[StatusData]):
@@ -148,6 +156,7 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
         self.api, self.controller, self.entry = api, controller, entry
         self._seen_events: set[str] = set()
         self._events_primed = False
+        self.baselines: BaselineStore | None = None    # set up before the first refresh
 
     async def _async_update_data(self) -> HistoryData:
         today = dt_util.now().date()
@@ -165,6 +174,10 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
                 network = await self.api.network(self.controller)
             except SpruceError:
                 network = {}
+            try:
+                baseline = await self.api.current_baseline(self.controller)
+            except SpruceError:
+                baseline = {}
             try:
                 await self._fire_events()
             except SpruceError as err:   # the activity log is slow; it shouldn't hold up the rest
@@ -280,8 +293,71 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
             if good:
                 data.usual_lpm[zone] = stats.median(good) * LITRES_PER_GALLON
                 data.flow_fault[zone] = gpm * LITRES_PER_GALLON < share * data.usual_lpm[zone]
+        for key, b in baseline.items():
+            if isinstance(b, dict) and str(key).isdigit() and _float(b.get("gpm")) is not None:
+                seen = _int(b.get("DTepoch"))
+                data.baseline[int(key)] = {"id": str(b.get("id")), "lpm": _float(b["gpm"]) * LITRES_PER_GALLON,
+                                           "at": datetime.fromtimestamp(seen, timezone.utc) if seen else None}
         self._raise_flow_issue(data)
+        self.review_baseline(data)
+        self._raise_health_issues(data)
         return data
+
+    def review_baseline(self, data: HistoryData) -> None:
+        """Store a baseline not seen before and review it; tell the user when one lands (not the first one seen)."""
+        if self.baselines is None:
+            return
+        first = not self.baselines.snapshots
+        designs = {z: d.lpm for z, d in design(self.entry).items() if d.lpm > 0}
+        snapshot = self.baselines.observe(data.baseline, designs,
+                                          self.entry.options.get(CONF_REVIEW_TOLERANCE, DEFAULT_REVIEW_TOLERANCE))
+        pending = self.baselines.pending()
+        issue_id = f"baseline_review_{self.controller}"
+        name = lambda z: data.zones[z].name if z in data.zones else f"Zone {z}"   # noqa: E731
+        if pending:
+            ir.async_create_issue(
+                self.hass, DOMAIN, issue_id, is_fixable=True, severity=ir.IssueSeverity.WARNING,
+                translation_key="baseline_review", data={"entry_id": self.entry.entry_id},
+                translation_placeholders={"zones": ", ".join(name(z) for z in sorted(pending))})
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+        if snapshot is None or first:
+            return
+        previous = [s for s in self.baselines.snapshots if s is not snapshot]
+        before = previous[-1]["zones"] if previous else {}
+        changes = sorted(((z, before.get(z), v) for z, v in snapshot["zones"].items()),
+                         key=lambda c: -abs((c[2] - c[1]) / c[1]) if c[1] else 0)
+        lines = [f"- {name(z)}: {old:.1f} → {new:.1f} L/min" if old else f"- {name(z)}: {new:.1f} L/min"
+                 for z, old, new in changes[:6]]
+        review = f"\n\n{len(pending)} zone(s) need review (Settings → Repairs)." if pending else ""
+        persistent_notification.async_create(
+            self.hass, "Biggest changes from the previous baseline:\n" + "\n".join(lines) + review,
+            title=f"{data.name}: new flow baseline", notification_id=f"{DOMAIN}_baseline_{self.controller}")
+
+    def _raise_health_issues(self, data: HistoryData) -> None:
+        """Repairs notices for things the Spruce app only hints at."""
+        name = lambda z: data.zones[z].name if z in data.zones else f"Zone {z}"   # noqa: E731
+        enabled = {z for z, zone in data.zones.items() if zone.enabled}
+        no_flow = sorted(z for z, b in data.baseline.items() if z in enabled and b["lpm"] < NO_FLOW_LPM)
+        offset = data.flow_meter.get("offset")
+        stamps = [b["at"] for b in data.baseline.values() if b.get("at")]
+        stale = bool(stamps) and dt_util.utcnow() - max(stamps) > BASELINE_STALE
+        silent = [o["name"] for o in data.outlets.values()
+                  if o.get("last_seen") is None or dt_util.utcnow() - o["last_seen"] > OUTLET_SILENT]
+        checks = {
+            "no_flow_at_baseline": (bool(no_flow), {"zones": ", ".join(name(z) for z in no_flow)}),
+            "flow_calibration": (bool(data.flow_meter.get("custom")) and offset is not None and not 0 <= offset <= 2,
+                                 {"offset": f"{offset:g}" if offset is not None else ""}),
+            "stale_baseline": (stale, {"date": max(stamps).date().isoformat() if stamps else ""}),
+            "repeaters_silent": (bool(silent), {"outlets": ", ".join(silent)}),
+        }
+        for key, (raise_it, placeholders) in checks.items():
+            issue_id = f"{key}_{self.controller}"
+            if raise_it:
+                ir.async_create_issue(self.hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                                      translation_key=key, translation_placeholders=placeholders)
+            else:
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
     async def _fire_events(self) -> None:
         """Fire spruce_irrigation_event for each new activity-log entry (not the backlog at start-up)."""

@@ -9,7 +9,8 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.statistics import statistics_during_period
-from homeassistant.helpers import entity_registry as er
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.recorder.common import async_wait_recording_done
@@ -270,3 +271,97 @@ async def test_us_units_and_cost(hass: HomeAssistant, mock_api) -> None:
     assert rain.attributes["unit_of_measurement"] == "in" and float(rain.state) == 0.15
     cost = hass.states.get(reg.async_get_entity_id("sensor", DOMAIN, f"{CONTROLLER}_water_cost_today"))
     assert float(cost.state) == pytest.approx(80 / 1000 * 5, abs=0.01)   # $5 per 1000 gal
+
+
+def _sensor(hass: HomeAssistant, unique: str):
+    entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{CONTROLLER}_{unique}")
+    assert entity_id, unique
+    return hass.states.get(entity_id)
+
+
+async def test_baselines(hass: HomeAssistant, entry, mock_api) -> None:
+    from custom_components.spruce_irrigation.repairs import BaselineReviewFlow
+
+    issues = ir.async_get(hass)
+    # The first baseline seen is taken as it is
+    assert float(_sensor(hass, "zone_1_baseline_flow").state) == pytest.approx(30.28, abs=0.01)   # 8 gpm
+    history = _sensor(hass, "last_baselined").attributes["baselines"]
+    assert [b["id"] for b in history] == ["7"] and history[0]["zones"]["Front Lawn"] == pytest.approx(30.28, abs=0.01)
+    assert _sensor(hass, "baseline_review").state == "0"
+    assert _sensor(hass, "zone_1_flow_check").state == "no_flow"     # last run measured nothing
+    assert _sensor(hass, "zone_2_flow_check").state == "ok"
+    assert _sensor(hass, "zone_1_design_flow").state == "unknown"     # no heads entered yet
+    assert issues.async_get_issue(DOMAIN, f"repeaters_silent_{CONTROLLER}")   # the outlet: 30 days silent
+    assert issues.async_get_issue(DOMAIN, f"no_flow_at_baseline_{CONTROLLER}") is None
+
+    # Heads in zone 1: 8 MP2000 at 90° = 8 × 5.6 / 4 = 11.2 L/min design flow
+    await hass.services.async_call(DOMAIN, "set_zone_heads", {"zone": "Front Lawn", "heads": [
+        {"model": "Hunter MP Rotator MP2000", "arc": 90, "quantity": 8}]}, blocking=True)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    design = _sensor(hass, "zone_1_design_flow")
+    assert float(design.state) == pytest.approx(11.2)
+    assert design.attributes["heads"] == ["8 × Hunter MP Rotator MP2000 at 90°: 11.2 L/min"]
+    assert design.attributes["precipitation_rate_mm_h"] == pytest.approx(10.0, abs=0.1)
+
+    # A new baseline: zone 1 is 35% over its design flow (needs review), zone 2 within 25% of its last one
+    mock_api.current_baseline.return_value = {
+        "1": {"id": "8", "zone": "1", "gpm": 4.0, "DTepoch": str(int(dt_util.utcnow().timestamp()))},
+        "2": {"id": "8", "zone": "2", "gpm": 2.2, "DTepoch": str(int(dt_util.utcnow().timestamp()))},
+    }
+    rt = hass.config_entries.async_get_entry(entry.entry_id).runtime_data
+    await rt.history.async_refresh()
+    await hass.async_block_till_done()
+    review = _sensor(hass, "baseline_review")
+    assert review.state == "1" and list(review.attributes["zones"]) == ["Front Lawn"]
+    assert issues.async_get_issue(DOMAIN, f"baseline_review_{CONTROLLER}").is_fixable
+    assert rt.baselines.reference(2) == pytest.approx(2.2 * 3.785411784, abs=0.001)   # accepted
+    assert rt.baselines.reference(1) == pytest.approx(30.28, abs=0.01)                # still the previous one
+
+    # Repairs: keep the previous value for zone 1 (nothing ticked)
+    flow = BaselineReviewFlow(entry.entry_id)
+    flow.hass, flow.flow_id, flow.handler = hass, "test", DOMAIN
+    form = await flow.async_step_init()
+    assert form["type"] is FlowResultType.FORM and "Front Lawn" in form["description_placeholders"]["zones"]
+    done = await flow.async_step_init({"accept": []})
+    assert done["type"] is FlowResultType.CREATE_ENTRY
+    assert _sensor(hass, "baseline_review").state == "0"
+    assert issues.async_get_issue(DOMAIN, f"baseline_review_{CONTROLLER}") is None
+    assert rt.baselines.latest["review"][1] == "kept_previous"
+
+    # An old baseline from paper (in gpm), and a new baseline run
+    await hass.services.async_call(DOMAIN, "record_baseline", {
+        "date": "2025-03-14", "flows": {"1": 16.073, "Garden Beds": 4.365}, "unit": "gal/min", "note": "paper"},
+        blocking=True)
+    history = _sensor(hass, "last_baselined").attributes["baselines"]
+    assert [b["id"] for b in history] == ["8", "7", "manual-2025-03-14"]
+    assert history[2]["source"] == "manual" and history[2]["zones"]["Front Lawn"] == pytest.approx(60.84, abs=0.01)
+
+    run = er.async_get(hass).async_get_entity_id("button", DOMAIN, f"{CONTROLLER}_run_baseline")
+    await hass.services.async_call("button", "press", {"entity_id": run}, blocking=True)
+    mock_api.start_baseline.assert_awaited_with(CONTROLLER)
+
+
+async def test_zone_heads_flow(hass: HomeAssistant, entry) -> None:
+    """Add a head model of your own, then a zone's heads through the subentry forms."""
+    model = await hass.config_entries.subentries.async_init((entry.entry_id, "head_model"), context={"source": "user"})
+    assert model["type"] is FlowResultType.FORM
+    form = await hass.config_entries.subentries.async_configure(model["flow_id"], {"start_from": "builtin:rainbird_xb10"})
+    assert form["step_id"] == "model"
+    made = await hass.config_entries.subentries.async_configure(form["flow_id"], {
+        "brand": "Acme", "model": "Dripper 6", "kind": "per_emitter", "flow": 6})
+    assert made["type"] is FlowResultType.CREATE_ENTRY and made["title"] == "Acme Dripper 6"
+    await hass.async_block_till_done(wait_background_tasks=True)
+    entry = hass.config_entries.async_get_entry(entry.entry_id)
+    custom = next(k for k, s in entry.subentries.items() if s.subentry_type == "head_model")
+
+    flow = await hass.config_entries.subentries.async_init((entry.entry_id, "zone_heads"), context={"source": "user"})
+    menu = await hass.config_entries.subentries.async_configure(flow["flow_id"], {"zone": "2"})
+    assert menu["type"] is FlowResultType.MENU
+    form = await hass.config_entries.subentries.async_configure(menu["flow_id"], {"next_step_id": "add_head"})
+    menu = await hass.config_entries.subentries.async_configure(form["flow_id"], {
+        "model": f"custom:{custom}", "arc": 360, "quantity": 20})
+    assert "2.00" in menu["description_placeholders"]["total"]        # 20 × 6 L/h = 2 L/min
+    saved = await hass.config_entries.subentries.async_configure(menu["flow_id"], {"next_step_id": "save"})
+    assert saved["type"] is FlowResultType.CREATE_ENTRY and saved["title"] == "Garden Beds"
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert float(_sensor(hass, "zone_2_design_flow").state) == pytest.approx(2.0)
