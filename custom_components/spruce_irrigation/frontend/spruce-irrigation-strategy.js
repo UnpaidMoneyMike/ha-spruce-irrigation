@@ -234,7 +234,11 @@ function zonesView(hass, c, zones) {
     const place = hass.states[c.zones[z].valve]?.attributes?.place || zones[z];
     (places[place] ??= []).push(z);
   }
-  const budget = (id) => `{% set b = state_attr('${id}', 'water_budget') %}{% if b and b.allowed_depletion_mm %}`
+  const budget = (id) => `{% set n = states('${id}') %}{% set a = states['${id}'].attributes if states['${id}'] else {} %}`
+    + "**Next:** {% if n in ['unknown', 'unavailable'] %}nothing planned{% else %}"
+    + "{{ as_timestamp(n) | timestamp_custom('%a %-d %b, %-I:%M %p') }} · {{ a.get('minutes', '?') }} min{% endif %}"
+    + "{% if a.get('message') %} — {{ a.message }}{% endif %}\n\n"
+    + `{% set b = state_attr('${id}', 'water_budget') %}{% if b and b.allowed_depletion_mm %}`
     + "{% set pct = ((b.soil_water_mm or 0) / b.allowed_depletion_mm * 100) | round(0) | int %}"
     + "{% set pct = [0, [pct, 100] | min] | max %}"
     + "Soil water {{ '█' * (pct // 10) }}{{ '░' * (10 - pct // 10) }} {{ pct }} %"
@@ -248,7 +252,6 @@ function zonesView(hass, c, zones) {
         tile(e.valve, { name: "Valve", color: "blue", state_content: ["state", "last_changed"] }),
         tile(e.run_time, { name: "Run time", features: [{ type: "numeric-input", style: "buttons" }] }),
         tile(e.flow_check, { name: "Flow", state_content: ["state", "last_flow", "reference_flow"] }),
-        tile(e.next_watering, { name: "Next watering", state_content: ["state", "minutes"] }),
         e.next_watering ? md(budget(e.next_watering), { text_only: true }) : null,
       ];
     }),
@@ -356,6 +359,10 @@ function waterView(c, zones, schedules) {
   };
 }
 
+/** Shown only while a new baseline waits for review. */
+const whenReview = (e, card) => (card && e.baseline_review
+  ? { ...card, visibility: [{ condition: "state", entity: e.baseline_review, state_not: "0" }] } : card);
+
 function healthView(c, zones) {
   const e = c.entities;
   const checks = activeZones(c).filter((z) => c.zones[z].flow_check);
@@ -390,8 +397,8 @@ function healthView(c, zones) {
         tile(e.flow_rate, { name: "Flow rate", state_content: ["state", "average_10_s"] }),
         tile(e.last_baselined, { name: "Last baseline" }), tile(e.baseline_review, { name: "Zones to review", color: "amber" }),
         press(e.run_baseline, "Run a flow baseline? Every enabled zone waters for about a minute."),
-        press(e.accept_baseline, "Accept the new baseline for the zones waiting for review?"),
-        press(e.keep_previous_baseline, "Keep the previous baseline for the zones waiting for review?")]),
+        whenReview(e, press(e.accept_baseline, "Accept the new baseline for the zones waiting for review?")),
+        whenReview(e, press(e.keep_previous_baseline, "Keep the previous baseline for the zones waiting for review?"))]),
       checks.length ? section([heading("Flow check", "mdi:water-alert"), md(
         `Last run against the design flow from the zone's heads, else the accepted baseline (${unit}).\n\n`
         + "| Zone | Design | Baseline | Last run | Check |\n|---|---|---|---|---|\n" + checks.map(row).join("\n"))], 2) : null,
