@@ -106,6 +106,38 @@ set_schedule_zone:
     wind_skip:
       selector:
         boolean:
+    mode:
+      selector:
+        select:
+          options:
+            - "et_days"
+            - "et_duration"
+            - "sensor"
+            - "fixed"
+    cycles:
+      selector:
+        select:
+          options:
+            - "auto"
+            - "1"
+            - "2"
+            - "3"
+            - "4"
+    weekly_min:
+      selector:
+        number:
+          min: 0
+          max: 7
+          step: 0.1
+    weekly_max:
+      selector:
+        number:
+          min: 0
+          max: 7
+          step: 0.1
+    climate_adjust:
+      selector:
+        boolean:
 run_baseline:
   fields:
     device_id: *device
@@ -153,3 +185,66 @@ set_zone_heads:
       example: '[{"model": "Hunter MP Rotator MP2000", "arc": 90, "quantity": 2}]'
       selector:
         object:
+create_schedule:
+  fields:
+    device_id: *device
+    name:
+      required: true
+      selector:
+        text:
+    type:
+      default: connected
+      selector:
+        select:
+          options:
+            - "connected"
+            - "basic"
+            - "manual"
+delete_schedule:
+  fields:
+    device_id: *device
+    schedule:
+      required: true
+      selector:
+        text:
+rename_schedule:
+  fields:
+    device_id: *device
+    schedule:
+      required: true
+      selector:
+        text:
+    name:
+      required: true
+      selector:
+        text:
+set_schedule_days:
+  fields:
+    device_id: *device
+    schedule:
+      required: true
+      selector:
+        text:
+    weekdays:
+      selector:
+        select:
+          multiple: true
+          options:
+            - "sun"
+            - "mon"
+            - "tue"
+            - "wed"
+            - "thu"
+            - "fri"
+            - "sat"
+    every:
+      selector:
+        number:
+          min: 1
+          max: 15
+    even_odd:
+      selector:
+        select:
+          options:
+            - "even"
+            - "odd"

@@ -33,8 +33,12 @@ from .const import (
     SERVICE_PAIR_SENSOR,
     SERVICE_RUN_ALL,
     SERVICE_RUN_SCHEDULE,
+    SERVICE_CREATE_SCHEDULE,
+    SERVICE_DELETE_SCHEDULE,
     SERVICE_PAUSE_SCHEDULES,
     SERVICE_RECORD_BASELINE,
+    SERVICE_RENAME_SCHEDULE,
+    SERVICE_SET_SCHEDULE_DAYS,
     SERVICE_REVIEW_BASELINE,
     SERVICE_RUN_BASELINE,
     SERVICE_SET_SCHEDULE_ZONE,
@@ -50,7 +54,7 @@ from .units import Units
 from .statistics import async_import_history, async_update_recent_statistics
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CALENDAR, Platform.NUMBER, Platform.SENSOR,
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CALENDAR, Platform.NUMBER, Platform.SELECT, Platform.SENSOR,
              Platform.SWITCH, Platform.TIME, Platform.VALVE]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 HISTORY_IMPORTED = "history_imported"
@@ -254,6 +258,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> b
 # ---- services --------------------------------------------------------------------------------------------------
 
 DEVICE = vol.Optional("device_id")
+WEEKDAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]   # Spruce's order
+# set_schedule_zone field -> (Spruce setting, key in the schedule's zone data)
+ZONE_FIELDS = {
+    "watering_percent": ("duration_scaling", "scaling"), "enabled": ("zonesched_enabled", "enabled"),
+    "rain_skip": ("rain_delay_enabled", "rain_skip"), "freeze_skip": ("freeze_delay_enabled", "freeze_skip"),
+    "wind_skip": ("wind_delay_enabled", "wind_skip"), "mode": ("schedule_mode", "mode"), "cycles": ("cycles", "cycles"),
+    "weekly_min": ("weekly_safeguard_min", "weekly_min"), "weekly_max": ("weekly_safeguard_max", "weekly_max"),
+    "climate_adjust": ("climate_adjust_enabled", "climate_adjust"),
+}
 SCHEMAS = {
     SERVICE_RUN_ALL: vol.Schema({DEVICE: cv.string, vol.Required("minutes"): vol.All(vol.Coerce(float), vol.Range(min=1, max=240))}),
     SERVICE_RUN_SCHEDULE: vol.Schema({DEVICE: cv.string, vol.Required("schedule"): cv.string}),
@@ -281,7 +294,20 @@ SCHEMAS = {
         DEVICE: cv.string, vol.Required("schedule"): cv.string, vol.Required("zone"): cv.string,
         vol.Optional("watering_percent"): vol.All(vol.Coerce(int), vol.Range(min=1, max=300)),
         vol.Optional("enabled"): cv.boolean, vol.Optional("rain_skip"): cv.boolean, vol.Optional("freeze_skip"): cv.boolean,
-        vol.Optional("wind_skip"): cv.boolean}),
+        vol.Optional("wind_skip"): cv.boolean, vol.Optional("mode"): vol.In(["et_days", "et_duration", "sensor", "fixed"]),
+        vol.Optional("cycles"): vol.In(["auto", "1", "2", "3", "4"]),
+        vol.Optional("weekly_min"): vol.All(vol.Coerce(float), vol.Range(min=0, max=7)),
+        vol.Optional("weekly_max"): vol.All(vol.Coerce(float), vol.Range(min=0, max=7)),
+        vol.Optional("climate_adjust"): cv.boolean}),
+    SERVICE_CREATE_SCHEDULE: vol.Schema({DEVICE: cv.string, vol.Required("name"): cv.string,
+                                         vol.Optional("type", default="connected"): vol.In(["connected", "basic", "manual"])}),
+    SERVICE_DELETE_SCHEDULE: vol.Schema({DEVICE: cv.string, vol.Required("schedule"): cv.string}),
+    SERVICE_RENAME_SCHEDULE: vol.Schema({DEVICE: cv.string, vol.Required("schedule"): cv.string, vol.Required("name"): cv.string}),
+    SERVICE_SET_SCHEDULE_DAYS: vol.Schema({
+        DEVICE: cv.string, vol.Required("schedule"): cv.string,
+        vol.Exclusive("weekdays", "days"): vol.All(cv.ensure_list, [vol.In(WEEKDAY_KEYS)]),
+        vol.Exclusive("every", "days"): vol.All(vol.Coerce(int), vol.Range(min=1, max=15)),
+        vol.Exclusive("even_odd", "days"): vol.In(["even", "odd"])}),
 }
 
 
@@ -309,17 +335,41 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 # A zone in a zone group ("Place") is set with the rest of its group, as the app does
                 sid, zones = _schedule_id(rt, call.data["schedule"]), _zones(rt, call.data["zone"])
                 values, local = {}, {}
-                for field, setting in (("watering_percent", "duration_scaling"), ("enabled", "zonesched_enabled"),
-                                       ("rain_skip", "rain_delay_enabled"), ("freeze_skip", "freeze_delay_enabled"),
-                                       ("wind_skip", "wind_delay_enabled")):
+                for field, (setting, key) in ZONE_FIELDS.items():
                     if field not in call.data:
                         continue
                     value = call.data[field]
-                    values[setting] = str(value) if field == "watering_percent" else ("1" if value else "0")
-                    local["scaling" if field == "watering_percent" else field] = float(value) if field == "watering_percent" else value
+                    if isinstance(value, bool):
+                        values[setting], local[key] = ("1" if value else "0"), value
+                    elif isinstance(value, float | int):
+                        values[setting], local[key] = f"{value:g}", float(value)
+                    else:
+                        values[setting], local[key] = value, value
                 if not values:
-                    raise ServiceValidationError("Give at least one of watering_percent, enabled, rain_skip, freeze_skip, wind_skip")
+                    raise ServiceValidationError(f"Give at least one of {', '.join(ZONE_FIELDS)}")
                 await rt.async_set_schedule_zones(sid, zones, values, local)
+                return
+            elif call.service == SERVICE_CREATE_SCHEDULE:
+                await api.create_schedule(ctrl, call.data["type"], call.data["name"].strip())
+            elif call.service == SERVICE_DELETE_SCHEDULE:
+                await api.delete_schedule(ctrl, _schedule_id(rt, call.data["schedule"]))
+            elif call.service == SERVICE_RENAME_SCHEDULE:
+                sid = _schedule_id(rt, call.data["schedule"])
+                await rt.async_set_schedule(sid, {"schedule_name": call.data["name"].strip()},
+                                            local={"name": call.data["name"].strip()})
+                return
+            elif call.service == SERVICE_SET_SCHEDULE_DAYS:
+                sid = _schedule_id(rt, call.data["schedule"])
+                if "weekdays" in call.data:   # Spruce keeps 7 flags, Sunday first
+                    select, var = "days", "".join("1" if d in call.data["weekdays"] else "0" for d in WEEKDAY_KEYS)
+                elif "every" in call.data:
+                    select, var = "everyx", str(call.data["every"])
+                elif "even_odd" in call.data:
+                    select, var = "even_odd", call.data["even_odd"]
+                else:
+                    raise ServiceValidationError("Give weekdays, every (days) or even_odd")
+                await rt.async_set_schedule(sid, {"days_select": select, "days_var": var},
+                                            local={"days_select": select, "days_var": var})
                 return
             elif call.service == SERVICE_RUN_BASELINE:
                 await api.start_baseline(ctrl)
@@ -347,7 +397,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             raise HomeAssistantError(str(err)) from err
         rt.optimistic(None, {"on": False} if call.service == SERVICE_STOP else None)
         if call.service in (SERVICE_HIBERNATE, SERVICE_PAUSE_SCHEDULES, SERVICE_RUN_SCHEDULE, SERVICE_STOP_SCHEDULE,
-                            SERVICE_RUN_BASELINE):
+                            SERVICE_RUN_BASELINE, SERVICE_CREATE_SCHEDULE, SERVICE_DELETE_SCHEDULE):
             await rt.history.async_request_refresh()
 
     for name, schema in SCHEMAS.items():

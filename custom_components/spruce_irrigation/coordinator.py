@@ -250,13 +250,20 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
                 "freeze_skip": str(s.get("freeze_delay_enabled", "1")) == "1",
                 "wind_skip": str(s.get("wind_delay_enabled", "1")) == "1",
                 "rain_inches": _float(s.get("rain_delay_inches")) if s.get("rain_delay_inches") not in (None, "") else 0.15,
+                "start_mode": s.get("start_time_mode") or "set", "start_offset": _float(s.get("start_time_rel")) or 0.0,
+                "days_select": s.get("days_select"), "days_var": str(s.get("days_var") or ""),
+                "window": str(s.get("time_restr1_enabled")) == "1",
+                "window_start": s.get("time_restr1_start"), "window_end": s.get("time_restr1_end"),
                 "zones": {int(z): {"enabled": str(v.get("zonesched_enabled", "1")) == "1",
                                    "scaling": _float(v.get("duration_scaling")) or 100.0,
                                    # connected schedules keep the weather skips per zone (default on, as the app)
                                    "rain_skip": str(v.get("rain_delay_enabled", "1")) == "1",
                                    "freeze_skip": str(v.get("freeze_delay_enabled", "1")) == "1",
                                    "wind_skip": str(v.get("wind_delay_enabled", "1")) == "1",
-                                   "mode": v.get("schedule_mode"), "cycles": v.get("cycles")}
+                                   "mode": v.get("schedule_mode"), "cycles": v.get("cycles"),
+                                   "weekly_min": _float(v.get("weekly_safeguard_min")),
+                                   "weekly_max": _float(v.get("weekly_safeguard_max")),
+                                   "climate_adjust": str(v.get("climate_adjust_enabled", "0")) == "1"}
                           for z, v in _literal(s.get("zone")).items() if str(z).isdigit() and isinstance(v, dict)},
                 "next_date": s.get("next_date"), "next_minutes": _float(s.get("next_minutes")),
                 "days": _watering_days(s),

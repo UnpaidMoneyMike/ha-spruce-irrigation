@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -260,7 +260,8 @@ def _history_attrs(rt) -> dict[str, Any]:
     if not rt.baselines:
         return {}
     return {"unit": rt.units.unit["flow"], "baselines": [
-        {"id": snap["id"], "date": snap["at"][:10], "source": snap["source"], "note": snap.get("note"),
+        {"id": snap["id"], "date": dt_util.as_local(datetime.fromisoformat(snap["at"])).date().isoformat(),
+         "source": snap["source"], "note": snap.get("note"),
          "zones": {_zone_name(rt, z): _flow(rt, v) for z, v in sorted(snap["zones"].items())},
          "review": {_zone_name(rt, z): v for z, v in sorted(snap["review"].items()) if v != "accepted"} or None}
         for snap in reversed(rt.baselines.snapshots[-12:])]}

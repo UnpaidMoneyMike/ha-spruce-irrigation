@@ -23,6 +23,7 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 | **Schedules** | Per schedule (except the manual one): **enabled** switch, **start time**, **rain / freeze / wind skip** switches (in connected schedules the skips are per zone: the switch is on when every zone has it and lists the zones without it). Changes are saved in Spruce and sent to the controller, as the Spruce app does |
 | **Weather Watch** | The controller's thresholds, shared by all schedules: **rain skip threshold**, **freeze skip temperature** and **wind skip threshold**, in your chosen units |
 | **Controller settings** | **Maximum manual run time**, **pump delay**, **allow concurrent zones**; flow meter: **upper / lower flow deviation limits**, **stop on high flow**, **pump protect**, **sustained** and **burst leak detection** |
+| **Schedule editing** | Per connected schedule: **start mode** (set time, or relative to sunrise / sunset) and **offset**, **watering days** (every day … once a week, even / odd days; days of the week with `set_schedule_days`), **watering window** with start and end. Services to **create**, **rename** and **delete** schedules, and per zone in a schedule: mode (weather balance – vary days / vary time, sensor, fixed), cycles, minimum / maximum days per week, climate adjust (`set_schedule_zone`) |
 | **Watering plan** | A **calendar** with Spruce's plan for each enabled schedule, about 18 days ahead plus the last few days: each watering from start to finish (with minutes per zone), and days skipped for rain, freeze, wind or hibernation as all-day notes. **Next watering** (start time, schedule, minutes, finish, minutes per zone) and **Watering today** (watering, skipping for rain / freeze / wind, not needed, nothing planned) sensors; each schedule's **watering days** (every day, every N days, even/odd days, weekdays) |
 | **Live status** (every minute) | Status (idle, watering, paused, pump delay, cycle and soak, hibernating, offline), active zone, watering ends, watering, online, last seen |
 | **Water** | Water today and this month (controller and per zone), usable in the Energy dashboard; per-zone last measured flow, usual flow and last run; **water cost** today and this month once a price is set in the options |
@@ -61,7 +62,9 @@ strategy:
 `run_schedule` / `stop_schedule` (schedule name as in the Spruce app), `stop`, `set_hibernate`,
 `pause_schedules` (days or until a date), `run_baseline`, `record_baseline` (an older baseline, per zone),
 `review_baseline` (accept or keep previous), `set_zone_heads` (a zone's heads, for scripts), `pair_sensor`, `import_history` (re-import water statistics from a date),
-`set_schedule_zone` (a zone's watering %, whether it is included and its rain / freeze / wind skips, in a schedule;
+`create_schedule`, `rename_schedule`, `delete_schedule`, `set_schedule_days`,
+`set_schedule_zone` (a zone's watering %, whether it is included, its rain / freeze / wind skips, mode, cycles,
+weekly limits and climate adjust, in a schedule;
 a zone in a zone group changes with its group, or give the group's name).
 
 ## Install

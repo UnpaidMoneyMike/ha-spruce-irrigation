@@ -101,6 +101,11 @@ def watering_schedules(entry) -> list[int]:
     return [sid for sid, s in entry.runtime_data.history.data.schedules.items() if s.get("type") != "manual"]
 
 
+def connected_schedules(entry) -> list[int]:
+    """Connected (smart) schedules: these have start modes, watering days and a watering window."""
+    return [sid for sid, s in entry.runtime_data.history.data.schedules.items() if s.get("type") == "connected"]
+
+
 def planned_days(rt) -> list[tuple[dict, dict]]:
     """(schedule, day) for every day Spruce has planned or recorded, for the enabled schedules (a disabled schedule
     keeps the plan from when it was last on), soonest first."""

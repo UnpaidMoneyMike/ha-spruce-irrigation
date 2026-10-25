@@ -365,3 +365,45 @@ async def test_zone_heads_flow(hass: HomeAssistant, entry) -> None:
     assert saved["type"] is FlowResultType.CREATE_ENTRY and saved["title"] == "Garden Beds"
     await hass.async_block_till_done(wait_background_tasks=True)
     assert float(_sensor(hass, "zone_2_design_flow").state) == pytest.approx(2.0)
+
+
+async def test_schedule_editing(hass: HomeAssistant, entry, mock_api) -> None:
+    reg = er.async_get(hass)
+    uid = lambda domain, key: reg.async_get_entity_id(domain, DOMAIN, f"{CONTROLLER}_schedule_11_{key}")  # noqa: E731
+
+    days = uid("select", "days")
+    assert hass.states.get(days).state == "every_day"
+    await hass.services.async_call("select", "select_option", {"entity_id": days, "option": "even_days"}, blocking=True)
+    mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"days_select": "even_odd", "days_var": "even"}, None)
+    mock_api.sync_schedule.assert_awaited_with(CONTROLLER, 11, True)
+
+    mode = uid("select", "start_mode")
+    assert hass.states.get(mode).state == "set"
+    await hass.services.async_call("select", "select_option", {"entity_id": mode, "option": "sunrise"}, blocking=True)
+    mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"start_time_mode": "rel-sunrise"}, None)
+    await hass.services.async_call("number", "set_value", {"entity_id": uid("number", "start_offset"), "value": -30},
+                                   blocking=True)
+    mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"start_time_rel": "-30"}, None)
+
+    window = uid("switch", "window")
+    assert hass.states.get(window).state == "off"
+    await hass.services.async_call("switch", "turn_on", {"entity_id": window}, blocking=True)
+    mock_api.save_schedule_settings.assert_awaited_with(
+        CONTROLLER, 11, {"time_restr1_enabled": "1", "time_restr1_start": "22:00", "time_restr1_end": "06:00"}, None)
+
+    await hass.services.async_call(DOMAIN, "set_schedule_days", {"schedule": "Morning", "weekdays": ["mon", "wed", "fri"]},
+                                   blocking=True)
+    mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"days_select": "days", "days_var": "0101010"}, None)
+
+    await hass.services.async_call(DOMAIN, "set_schedule_zone", {
+        "schedule": "Morning", "zone": "Lawns", "mode": "fixed", "cycles": "2", "weekly_max": 3}, blocking=True)
+    values = {"schedule_mode": "fixed", "cycles": "2", "weekly_safeguard_max": "3"}
+    mock_api.save_schedule_zones.assert_awaited_with(CONTROLLER, 11, {1: values, 2: values})
+
+    await hass.services.async_call(DOMAIN, "create_schedule", {"name": "Test", "type": "manual"}, blocking=True)
+    mock_api.create_schedule.assert_awaited_with(CONTROLLER, "manual", "Test")
+    await hass.services.async_call(DOMAIN, "delete_schedule", {"schedule": "Morning"}, blocking=True)
+    mock_api.delete_schedule.assert_awaited_with(CONTROLLER, 11)
+    await hass.services.async_call(DOMAIN, "rename_schedule", {"schedule": "Morning", "name": "Dawn"}, blocking=True)
+    mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"schedule_name": "Dawn"}, None)
+    await hass.async_block_till_done(wait_background_tasks=True)   # a new name reloads the integration

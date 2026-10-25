@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import FLOW_PORTS
-from .entity import SpruceEntity, SpruceScheduleEntity, outlet_device_info, watering_schedules
+from .entity import SpruceEntity, SpruceScheduleEntity, connected_schedules, outlet_device_info, watering_schedules
 
 # key -> (Spruce setting, field in the schedule data, icon)
 SCHEDULE_SWITCHES = {
@@ -27,6 +27,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddC
     data = rt.history.data
     entities: list[SwitchEntity] = [SpruceHibernate(entry), SpruceConcurrentZones(entry)]
     entities += [SpruceScheduleSwitch(entry, sid, key) for sid in watering_schedules(entry) for key in SCHEDULE_SWITCHES]
+    entities += [SpruceWindow(entry, sid) for sid in connected_schedules(entry)]
     entities += [SpruceZoneEnabled(entry, z) for z in range(1, data.num_zones + 1)]
     if data.flow_meter:
         entities += [SpruceFlowSwitch(entry, d) for d in FLOW_SWITCHES]
@@ -129,6 +130,40 @@ class SpruceScheduleSwitch(SpruceScheduleEntity, SwitchEntity):
             await self.rt.async_set_zone_skips(self.schedule_id, self._key, on)
         else:
             await self.rt.async_set_schedule(self.schedule_id, {self._setting: "1" if on else "0"}, local={self._field: on})
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._set(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._set(False)
+
+
+class SpruceWindow(SpruceScheduleEntity, SwitchEntity):
+    """A connected schedule's watering window: when on, watering happens only between its start and end times."""
+
+    _attr_translation_key = "schedule_window"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:clock-time-four-outline"
+
+    def __init__(self, entry, schedule_id: int) -> None:
+        super().__init__(entry, schedule_id, "window")
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self.schedule.get("window"))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"start": self.schedule.get("window_start"), "end": self.schedule.get("window_end")}
+
+    async def _set(self, on: bool) -> None:
+        values = {"time_restr1_enabled": "1" if on else "0"}
+        if on:   # the app needs both times; keep the stored ones or use a night window
+            values["time_restr1_start"] = self.schedule.get("window_start") or "22:00"
+            values["time_restr1_end"] = self.schedule.get("window_end") or "06:00"
+        await self.rt.async_set_schedule(self.schedule_id, values, local={
+            "window": on, "window_start": values.get("time_restr1_start", self.schedule.get("window_start")),
+            "window_end": values.get("time_restr1_end", self.schedule.get("window_end"))})
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self._set(True)

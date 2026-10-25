@@ -276,6 +276,23 @@ class SpruceApi:
     async def cancel_pairing(self, controller: str) -> None:
         await self._spruceset(controller, "device,add,cancel")
 
+    # ---- schedules ----------------------------------------------------------------------------------------------
+
+    async def create_schedule(self, controller: str, schedule_type: str, name: str) -> int:
+        """Add a schedule (connected / basic / manual), as the app's "Add a new schedule", and name it."""
+        data = await self._request("POST", "app/api/schedule",
+                                   {"schedule_type": schedule_type, "master_controller": controller}) or {}
+        schedule_id = _int(data.get("id")) if isinstance(data, dict) else None
+        if not schedule_id:
+            raise SpruceError("Spruce didn't create the schedule")
+        await self.save_schedule_settings(controller, schedule_id, {"schedule_name": name})
+        return schedule_id
+
+    async def delete_schedule(self, controller: str, schedule_id: int) -> None:
+        """Delete a schedule from the account, then from the controller (as the app does)."""
+        await self._request("DELETE", f"app/api/schedule/{schedule_id}")
+        await self._spruceset(controller, f"delete,{schedule_id}")
+
     # ---- flow baseline -------------------------------------------------------------------------------------------
 
     async def current_baseline(self, controller: str) -> dict[str, dict]:

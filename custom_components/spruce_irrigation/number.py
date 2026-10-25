@@ -18,7 +18,29 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import CONF_DEFAULT_RUN_MINUTES, DEFAULT_RUN_MINUTES, FLOW_PORTS
-from .entity import SpruceEntity, SpruceZoneEntity
+from .entity import SpruceEntity, SpruceScheduleEntity, SpruceZoneEntity, connected_schedules
+
+
+class SpruceStartOffset(SpruceScheduleEntity, NumberEntity):
+    """Minutes before (−) or after (+) sunrise / sunset, for a connected schedule started relative to the sun."""
+
+    _attr_translation_key = "schedule_start_offset"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:sun-clock"
+    _attr_native_min_value, _attr_native_max_value, _attr_native_step = -180, 180, 5
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, entry, schedule_id: int) -> None:
+        super().__init__(entry, schedule_id, "start_offset")
+
+    @property
+    def native_value(self) -> float | None:
+        return self.schedule.get("start_offset")
+
+    async def async_set_value(self, value: float) -> None:
+        await self.rt.async_set_schedule(self.schedule_id, {"start_time_rel": str(int(value))},
+                                         local={"start_offset": float(int(value))})
 
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
@@ -28,6 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddC
     entities += [SpruceControllerNumber(entry, d) for d in CONTROLLER]
     if rt.history.data.flow_meter:
         entities += [SpruceFlowLimit(entry, d) for d in FLOW_LIMITS]
+    entities += [SpruceStartOffset(entry, sid) for sid in connected_schedules(entry)]
     async_add_entities(entities)
 
 

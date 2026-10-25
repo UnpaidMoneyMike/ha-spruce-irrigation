@@ -184,6 +184,9 @@
       },
       "flow_limit_low": {
         "name": "Flow deviation lower limit"
+      },
+      "schedule_start_offset": {
+        "name": "{schedule} start offset"
       }
     },
     "switch": {
@@ -222,6 +225,9 @@
       },
       "outlet": {
         "name": "Outlet"
+      },
+      "schedule_window": {
+        "name": "{schedule} watering window"
       }
     },
     "button": {
@@ -368,11 +374,42 @@
     "time": {
       "schedule_start": {
         "name": "{schedule} start time"
+      },
+      "schedule_window_start": {
+        "name": "{schedule} window start"
+      },
+      "schedule_window_end": {
+        "name": "{schedule} window end"
       }
     },
     "calendar": {
       "plan": {
         "name": "Watering plan"
+      }
+    },
+    "select": {
+      "schedule_start_mode": {
+        "name": "{schedule} start mode",
+        "state": {
+          "set": "Set time",
+          "sunrise": "Relative to sunrise",
+          "sunset": "Relative to sunset"
+        }
+      },
+      "schedule_days": {
+        "name": "{schedule} watering days",
+        "state": {
+          "every_day": "Every day",
+          "every_2_days": "Every 2 days",
+          "every_3_days": "Every 3 days",
+          "every_4_days": "Every 4 days",
+          "every_5_days": "Every 5 days",
+          "every_7_days": "Once a week",
+          "even_days": "Even days",
+          "odd_days": "Odd days",
+          "weekdays": "Days of the week",
+          "other": "Other"
+        }
       }
     }
   },
@@ -520,6 +557,26 @@
         "wind_skip": {
           "name": "Wind skip",
           "description": "Skip this zone above the wind threshold."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "Weather balance – vary days (et_days), weather balance – vary time (et_duration), sensor, or fixed."
+        },
+        "cycles": {
+          "name": "Cycles",
+          "description": "Split each watering into cycles (cycle and soak): auto or 1–4."
+        },
+        "weekly_min": {
+          "name": "Minimum days per week",
+          "description": "Safeguard: water at least this many days a week."
+        },
+        "weekly_max": {
+          "name": "Maximum days per week",
+          "description": "Safeguard: water at most this many days a week."
+        },
+        "climate_adjust": {
+          "name": "Climate adjust",
+          "description": "Scale watering by month (the controller's climate adjust)."
         }
       }
     },
@@ -610,6 +667,82 @@
         "heads": {
           "name": "Heads",
           "description": "Rows with model (a built-in key, a custom key, or brand and model as shown), arc in degrees and quantity (metres for drip line)."
+        }
+      }
+    },
+    "create_schedule": {
+      "name": "Create schedule",
+      "description": "Adds a schedule in Spruce (it appears in Home Assistant within a few minutes).",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Name of the new schedule."
+        },
+        "type": {
+          "name": "Type",
+          "description": "Connected (weather-based, recommended), basic (fixed times) or manual (run on demand)."
+        }
+      }
+    },
+    "delete_schedule": {
+      "name": "Delete schedule",
+      "description": "Deletes a schedule from Spruce and the controller. This can't be undone.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "Schedule name as in the Spruce app."
+        }
+      }
+    },
+    "rename_schedule": {
+      "name": "Rename schedule",
+      "description": "Renames a schedule in Spruce.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "Schedule name as in the Spruce app."
+        },
+        "name": {
+          "name": "New name",
+          "description": "The new name."
+        }
+      }
+    },
+    "set_schedule_days": {
+      "name": "Set watering days",
+      "description": "Which days a connected schedule may water: days of the week, every N days, or even / odd days.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "Schedule name as in the Spruce app."
+        },
+        "weekdays": {
+          "name": "Days of the week",
+          "description": "Water on these days."
+        },
+        "every": {
+          "name": "Every N days",
+          "description": "Water every N days (1 = every day)."
+        },
+        "even_odd": {
+          "name": "Even or odd days",
+          "description": "Water on even or odd dates."
         }
       }
     }
