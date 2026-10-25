@@ -12,7 +12,7 @@ const CONTROLLER_KEYS = ["status", "active_zone", "watering_ends", "water_today"
   "flow_limit_high", "flow_limit_low", "flow_stop_on_high", "flow_pump_protect", "flow_leak_sustained",
   "flow_leak_burst", "pause_until_tomorrow", "water_cost_today", "water_cost_month", "next_watering",
   "watering_today", "plan", "run_baseline", "accept_baseline", "keep_previous_baseline", "last_baselined",
-  "baseline_review"];
+  "baseline_review", "forecast", "climate_adjust"];
 const SENSOR_KEYS = ["moisture", "temperature", "battery", "signal", "last_reading"];
 
 /** The integration's controllers, zones, schedules, moisture sensors and water statistics. */
@@ -149,6 +149,8 @@ function overviewView(hass, c, zones, schedules) {
       tile(e.water_today), tile(e.water_month), tile(e.water_cost_month),
       tile(e.hibernate), press(e.pause_until_tomorrow, "Skip scheduled watering until tomorrow?"), press(e.stop),
     ]),
+    e.forecast ? section([heading("Forecast Spruce plans with", "mdi:weather-partly-rainy"),
+      { type: "weather-forecast", entity: e.forecast, forecast_type: "daily", grid_options: { columns: "full" } }]) : null,
     section([
       heading("Zones", "mdi:valve"),
       ...byNumber(c.zones).map((z) => tile(c.zones[z].valve, {
@@ -181,7 +183,7 @@ function overviewView(hass, c, zones, schedules) {
   return {
     type: "sections", title: "Overview", path: "overview", icon: "mdi:sprinkler-variant", max_columns: 4,
     badges: [e.status, e.active_zone, e.water_today].filter(Boolean).map((entity) => ({ type: "entity", entity })),
-    sections,
+    sections: sections.filter(Boolean),
   };
 }
 
@@ -275,7 +277,8 @@ function schedulesView(hass, c, zones, schedules) {
   sections.push(section([heading("Weather Watch (all schedules)", "mdi:weather-snowy-rainy"),
     tile(c.entities.rain_skip_threshold, { name: "Rain skip above" }),
     tile(c.entities.freeze_temperature, { name: "Freeze skip below" }),
-    tile(c.entities.wind_skip_threshold, { name: "Wind skip above" })]));
+    tile(c.entities.wind_skip_threshold, { name: "Wind skip above" }),
+    tile(c.entities.climate_adjust, { name: "Climate adjust this month" })]));
   return { type: "sections", title: "Schedules", path: "schedules", icon: "mdi:calendar-clock", max_columns: 4, sections };
 }
 

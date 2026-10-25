@@ -37,6 +37,8 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 | **Outlets** | Spruce smart outlets (which also repeat the sensors' Zigbee signal) as their own devices: a **socket** switch, last report, signal and **not reporting** (no report for 7 days) |
 | **History** | Spruce's water history (litres and minutes per zone per day, back to when the controller was added) imported into long-term statistics `spruce_irrigation:<controller>_zone_<n>_water` / `_minutes`, the same split per schedule (`..._zone_<n>_schedule_<id>_water` / `_minutes`), and a controller total |
 | **Weather** | Spruce's recorded weather at the controller's location (Apple WeatherKit) imported alongside: daily rain `spruce_irrigation:<controller>_rain` (mm) and the day's low/high temperature `..._temperature` (°C, min/max). The dashboard's History page shows rain, temperature and water per zone for the same 30 days one above the other (a chart can't mix mm and litres), and rain and water per month |
+| **Forecast** | A **weather** entity with the forecast Spruce plans with (Apple WeatherKit at the controller): now, hourly and daily, on the dashboard's overview |
+| **Climate adjust** | This month's **climate adjust** %, all 12 months as attributes; change them with `set_climate_adjust` (one month or all twelve) |
 | **Events** | `spruce_irrigation_event` fired for each new Spruce activity-log entry (zone finished with gallons and gpm, flow alerts, schedule skips…) for automations |
 | **Names** | Names come from the Spruce app. Rename a zone, schedule, sensor or the controller there (or add one) and the integration reloads itself within 15 minutes to pick it up; entity ids stay the same. Names you set in Home Assistant are kept |
 

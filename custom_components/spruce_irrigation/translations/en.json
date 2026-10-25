@@ -372,6 +372,9 @@
       },
       "zone_next_watering": {
         "name": "{zone} next watering"
+      },
+      "climate_adjust": {
+        "name": "Climate adjust this month"
       }
     },
     "time": {
@@ -413,6 +416,11 @@
           "weekdays": "Days of the week",
           "other": "Other"
         }
+      }
+    },
+    "weather": {
+      "forecast": {
+        "name": "Forecast"
       }
     }
   },
@@ -768,6 +776,28 @@
         "date": {
           "name": "Date",
           "description": "The day."
+        }
+      }
+    },
+    "set_climate_adjust": {
+      "name": "Set climate adjust",
+      "description": "Monthly watering percentages the controller scales schedules by (zones with climate adjust on).",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "months": {
+          "name": "Every month",
+          "description": "12 percentages, January first."
+        },
+        "month": {
+          "name": "Month",
+          "description": "One month (1–12) to change."
+        },
+        "percent": {
+          "name": "Percent",
+          "description": "Its percentage."
         }
       }
     }

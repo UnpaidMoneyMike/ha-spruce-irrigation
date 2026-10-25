@@ -39,6 +39,7 @@ from .const import (
     SERVICE_PAUSE_SCHEDULES,
     SERVICE_RECORD_BASELINE,
     SERVICE_RENAME_SCHEDULE,
+    SERVICE_SET_CLIMATE_ADJUST,
     SERVICE_SET_SCHEDULE_DAYS,
     SERVICE_REVIEW_BASELINE,
     SERVICE_RUN_BASELINE,
@@ -57,7 +58,7 @@ from .statistics import async_import_history, async_update_recent_statistics
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CALENDAR, Platform.NUMBER, Platform.SELECT, Platform.SENSOR,
-             Platform.SWITCH, Platform.TIME, Platform.VALVE]
+             Platform.SWITCH, Platform.TIME, Platform.VALVE, Platform.WEATHER]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 HISTORY_IMPORTED = "history_imported"
 HISTORY_VERSION = 3   # 2: per zone per schedule as well; 3: rain and temperature; a lower stored version re-imports
@@ -303,6 +304,12 @@ SCHEMAS = {
         vol.Optional("weekly_max"): vol.All(vol.Coerce(float), vol.Range(min=0, max=7)),
         vol.Optional("climate_adjust"): cv.boolean,
         vol.Optional("moisture_threshold"): vol.All(vol.Coerce(int), vol.Range(min=1, max=59))}),
+    SERVICE_SET_CLIMATE_ADJUST: vol.Schema({
+        DEVICE: cv.string,
+        vol.Exclusive("months", "climate"): vol.All(cv.ensure_list, [vol.All(vol.Coerce(int), vol.Range(min=0, max=200))],
+                                                    vol.Length(min=12, max=12)),
+        vol.Exclusive("month", "climate"): vol.All(vol.Coerce(int), vol.Range(min=1, max=12)),
+        vol.Optional("percent"): vol.All(vol.Coerce(int), vol.Range(min=0, max=200))}),
     SERVICE_CREATE_SCHEDULE: vol.Schema({DEVICE: cv.string, vol.Required("name"): cv.string,
                                          vol.Optional("type", default="connected"): vol.In(["connected", "basic", "manual"])}),
     SERVICE_DELETE_SCHEDULE: vol.Schema({DEVICE: cv.string, vol.Required("schedule"): cv.string}),
@@ -352,6 +359,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 if not values:
                     raise ServiceValidationError(f"Give at least one of {', '.join(ZONE_FIELDS)}")
                 await rt.async_set_schedule_zones(sid, zones, values, local)
+                return
+            elif call.service == SERVICE_SET_CLIMATE_ADJUST:
+                rules = list(call.data.get("months") or rt.history.data.climate_rules or [100] * 12)
+                if "month" in call.data:
+                    if "percent" not in call.data:
+                        raise ServiceValidationError("Give the percent for the month")
+                    rules[call.data["month"] - 1] = call.data["percent"]
+                elif "months" not in call.data:
+                    raise ServiceValidationError("Give months (12 percentages) or a month and its percent")
+
+                def local(data) -> None:
+                    data.climate_rules = rules
+                await rt.async_save("climate adjust", api.save_controller_settings(
+                    ctrl, {"climate_adjust_rules": ",".join(str(r) for r in rules)}), local, sync=True)
                 return
             elif call.service == SERVICE_CREATE_SCHEDULE:
                 await api.create_schedule(ctrl, call.data["type"], call.data["name"].strip())

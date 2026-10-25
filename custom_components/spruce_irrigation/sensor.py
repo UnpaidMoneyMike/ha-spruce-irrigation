@@ -307,6 +307,22 @@ def _zone_next_attrs(a) -> dict[str, Any]:
     return attrs
 
 
+def _climate(rt) -> int | None:
+    rules = rt.history.data.climate_rules
+    return rules[dt_util.now().month - 1] if rules else None
+
+
+def _climate_attrs(rt) -> dict[str, Any]:
+    names = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+    return dict(zip(names, rt.history.data.climate_rules))
+
+
+CLIMATE_SENSORS = (
+    SpruceSensorDescription(key="climate_adjust", translation_key="climate_adjust", native_unit_of_measurement=PERCENTAGE,
+                            icon="mdi:sun-thermometer", value_fn=_climate, attrs_fn=_climate_attrs),
+)
+
+
 PLAN_ZONE_SENSORS = (
     SpruceSensorDescription(key="next_watering", translation_key="zone_next_watering", device_class=SensorDeviceClass.TIMESTAMP,
                             icon="mdi:calendar-clock", value_fn=_zone_next, attrs_fn=_zone_next_attrs),
@@ -338,7 +354,7 @@ BASELINE_ZONE_SENSORS = (
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     rt = entry.runtime_data
     entities: list[SensorEntity] = [SpruceControllerSensor(entry, d)
-                                    for d in CONTROLLER_SENSORS + BASELINE_CONTROLLER_SENSORS]
+                                    for d in CONTROLLER_SENSORS + BASELINE_CONTROLLER_SENSORS + CLIMATE_SENSORS]
     for z, zone in rt.history.data.zones.items():
         if zone.enabled:
             entities += [SpruceZoneSensor(entry, z, d) for d in ZONE_SENSORS + BASELINE_ZONE_SENSORS + PLAN_ZONE_SENSORS]

@@ -37,6 +37,7 @@ def fake_api() -> AsyncMock:
         "controller": {CONTROLLER: {
             "hibernate_enabled": "0", "rain_delay_inches": "0.15", "freeze_temperature": "35", "wind_mph": "15",
             "manual_max_time": "10", "num_zones": "3",
+            "climate_adjust_rules": "100,100,90,80,60,50,50,60,70,80,90,100",
             "zone_group": {"1": {"grouped_zones": "1;2;", "zone_group_name": "Lawns", "sensor_in_zone": "1"}},
             "zone": {"101": {"custom_flow_enabled": "0", "flow_limit_high": "40", "flow_limit_low": "-30",
                              "flow_stop_enabled": "0", "flow_pump_protect_enabled": "1",
@@ -101,6 +102,13 @@ def fake_api() -> AsyncMock:
         "2": {"id": "7", "zone": "2", "gpm": 2.0, "DTepoch": str(epoch - 86400 * 5)},
     }
     api.start_baseline.return_value = 8
+    api.forecast.return_value = {
+        "api": "weatherkit",
+        "daily": {"data": [{"forecastStart": "2026-10-26T13:00:00Z", "conditionCode": "Rain", "temperatureMax": 25.0,
+                            "temperatureMin": 12.0, "precipitationAmount": 6.5, "precipitationChance": 0.8}]},
+        "hourly": {"data": [{"forecastStart": "2026-10-26T01:00:00Z", "conditionCode": "MostlyClear", "daylight": True,
+                             "temperature": 21.5, "humidity": 0.55, "windSpeed": 12.0, "pressure": 1013.0}]},
+    }
     api.outlet_status.return_value = {OUTLET: {"device_id": OUTLET, "current_state": "0", "epoch_time": str(epoch - 86400 * 30),
                                                "duration": "0", "schedule_id": "0", "signal_strength": "-70"}}
     return api

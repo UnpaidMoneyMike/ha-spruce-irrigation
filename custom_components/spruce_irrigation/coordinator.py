@@ -94,6 +94,8 @@ class HistoryData:
     flow_fault: dict[int, bool] = field(default_factory=dict)          # zone's last run measured ~no flow
     network: dict[str, Any] = field(default_factory=dict)
     baseline: dict[int, dict] = field(default_factory=dict)            # Spruce's current baseline: zone -> {id, lpm, at}
+    forecast: dict[str, list] = field(default_factory=dict)            # WeatherKit: {daily: [...], hourly: [...]}
+    climate_rules: list[int] = field(default_factory=list)              # climate adjust: 12 monthly percentages
 
 
 class SpruceStatusCoordinator(DataUpdateCoordinator[StatusData]):
@@ -180,6 +182,10 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
             except SpruceError:
                 baseline = {}
             try:
+                forecast = await self.api.forecast(self.controller)
+            except SpruceError:
+                forecast = {}
+            try:
                 await self._fire_events()
             except SpruceError as err:   # the activity log is slow; it shouldn't hold up the rest
                 _LOGGER.debug("Activity log not read this time: %s", err)
@@ -208,6 +214,11 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
         data.manual_max_minutes = _float(controller_app.get("manual_max_time"))
         data.pump_delay_seconds = _float(controller_app.get("pump_delay"))
         data.concurrent_zones = str(controller_app.get("concurrent_zones_enabled")) == "1"
+        rules = [_int(v) for v in str(controller_app.get("climate_adjust_rules") or "").split(",")]
+        data.climate_rules = rules if len(rules) == 12 and None not in rules else []
+        if isinstance(forecast, dict):
+            data.forecast = {part: (forecast.get(part) or {}).get("data") or [] for part in ("daily", "hourly")
+                             if isinstance(forecast.get(part), dict)}
         data.num_zones = int(_float(controller_app.get("num_zones")) or max([z for z in data.zones if z < 100], default=0))
         for gid, g in (controller_app.get("zone_group") or {}).items():
             members = tuple(int(z) for z in str(g.get("grouped_zones") or "").split(";") if z.strip().isdigit())

@@ -265,3 +265,21 @@ get_schedule_day:
       required: true
       selector:
         date:
+set_climate_adjust:
+  fields:
+    device_id: *device
+    months:
+      example: "[80, 80, 70, 60, 45, 40, 40, 50, 65, 80, 90, 100]"
+      selector:
+        object:
+    month:
+      selector:
+        number:
+          min: 1
+          max: 12
+    percent:
+      selector:
+        number:
+          min: 0
+          max: 200
+          unit_of_measurement: "%"

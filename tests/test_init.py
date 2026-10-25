@@ -428,3 +428,20 @@ async def test_zone_plan_and_schedule_day(hass: HomeAssistant, entry, mock_api) 
                                                                  "moisture_threshold": 28}, blocking=True)
     mock_api.save_schedule_zones.assert_awaited_with(CONTROLLER, 11, {1: {"moisture_setpoint": "28"},
                                                                      2: {"moisture_setpoint": "28"}})
+
+
+async def test_weather_and_climate_adjust(hass: HomeAssistant, entry, mock_api) -> None:
+    reg = er.async_get(hass)
+    weather = hass.states.get(reg.async_get_entity_id("weather", DOMAIN, f"{CONTROLLER}_forecast"))
+    assert weather.state == "sunny" and weather.attributes["temperature"] == 21.5 and weather.attributes["humidity"] == 55
+    daily = await hass.services.async_call("weather", "get_forecasts", {"entity_id": weather.entity_id, "type": "daily"},
+                                           blocking=True, return_response=True)
+    assert daily[weather.entity_id]["forecast"][0]["precipitation"] == 6.5
+    assert daily[weather.entity_id]["forecast"][0]["condition"] == "rainy"
+
+    climate = _sensor(hass, "climate_adjust")
+    assert climate.attributes["mar"] == 90
+    await hass.services.async_call(DOMAIN, "set_climate_adjust", {"month": 3, "percent": 85}, blocking=True)
+    mock_api.save_controller_settings.assert_awaited_with(
+        CONTROLLER, {"climate_adjust_rules": "100,100,85,80,60,50,50,60,70,80,90,100"})
+    mock_api.refresh_settings.assert_awaited_with(CONTROLLER)
