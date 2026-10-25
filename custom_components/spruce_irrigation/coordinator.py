@@ -389,18 +389,18 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
         enabled = {z for z, zone in data.zones.items() if zone.enabled}
         no_flow = sorted(z for z, b in data.baseline.items()
                          if z in enabled and z not in data.below_range and b["lpm"] < NO_FLOW_LPM)
-        offset = data.flow_meter.get("offset")
         stamps = [b["at"] for b in data.baseline.values() if b.get("at")]
         stale = bool(stamps) and dt_util.utcnow() - max(stamps) > BASELINE_STALE
         silent = [o["name"] for o in data.outlets.values()
                   if o.get("last_seen") is None or dt_util.utcnow() - o["last_seen"] > OUTLET_SILENT]
         checks = {
             "no_flow_at_baseline": (bool(no_flow), {"zones": ", ".join(name(z) for z in no_flow)}),
-            "flow_calibration": (bool(data.flow_meter.get("custom")) and offset is not None and not 0 <= offset <= 2,
-                                 {"offset": f"{offset:g}" if offset is not None else ""}),
             "stale_baseline": (stale, {"date": max(stamps).date().isoformat() if stamps else ""}),
             "repeaters_silent": (bool(silent), {"outlets": ", ".join(silent)}),
         }
+        # 1.3.1: no "calibration out of range" check: a custom meter's offset outside the app's 0-2 can be right
+        # (Spruce support sets it for meters whose pulse formula needs it, e.g. f = 6Q - 8 -> offset 8)
+        ir.async_delete_issue(self.hass, DOMAIN, f"flow_calibration_{self.controller}")
         for key, (raise_it, placeholders) in checks.items():
             issue_id = f"{key}_{self.controller}"
             if raise_it:

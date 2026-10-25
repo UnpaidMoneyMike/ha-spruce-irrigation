@@ -145,10 +145,6 @@
       "title": "Zones measured no flow at the last baseline",
       "description": "{zones} measured almost no water at Spruce's last flow baseline. The valve may not be opening, a pipe or dripper line may be blocked, or the zone has no heads. Spruce's flow alerts can't work for these zones until it is fixed and a new baseline is run."
     },
-    "flow_calibration": {
-      "title": "Flow meter calibration out of range",
-      "description": "The flow meter is set to a custom model with offset {offset}, outside the 0–2 the Spruce app allows. Water figures are probably wrong; check the meter model in the Spruce app (Device Settings → Flow meter)."
-    },
     "stale_baseline": {
       "title": "Flow baseline is over a year old",
       "description": "Spruce's flow baseline is from {date}. Heads, pressure and plants change; run a new baseline (button \"Run flow baseline\") so flow alerts compare with today's system."
