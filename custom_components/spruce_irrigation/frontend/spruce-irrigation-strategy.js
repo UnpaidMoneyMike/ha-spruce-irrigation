@@ -246,7 +246,8 @@ function schedulesView(hass, c, zones, schedules) {
         const id = c.zones[z].next_watering;
         return `{% set a = states['${id}'].attributes %}| ${zones[z]} | {% if states('${id}') not in ['unknown', 'unavailable'] %}`
           + `{{ as_timestamp(states('${id}')) | timestamp_custom('${when}') }}{% else %}–{% endif %}`
-          + " | {{ a.minutes or '–' }} | {{ a.days_next_7 }} (avg {{ a.average_minutes }} min) | {{ a.message or a.today or '' }} |";
+          + " | {{ a.get('minutes') or '–' }} | {{ a.get('days_next_7', 0) }} (avg {{ a.get('average_minutes', 0) }} min)"
+          + " | {{ a.get('message') or a.get('today') or '' }} |";
       }).join("\n"),
     }], 2));
   }
