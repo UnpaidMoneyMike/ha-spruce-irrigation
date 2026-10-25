@@ -188,7 +188,7 @@ class SpruceOptionsFlow(OptionsFlow):
                                for k, v in user_input.items()})
         o = self.config_entry.options
         box = lambda lo, hi, step=1, unit=None: NumberSelector(NumberSelectorConfig(  # noqa: E731
-            min=lo, max=hi, step=step, mode=NumberSelectorMode.BOX, unit_of_measurement=unit))
+            min=lo, max=hi, step=step, mode=NumberSelectorMode.BOX, **({"unit_of_measurement": unit} if unit else {})))
         return self.async_show_form(step_id="general", data_schema=vol.Schema({
             vol.Required(CONF_DEFAULT_RUN_MINUTES, default=o.get(CONF_DEFAULT_RUN_MINUTES, DEFAULT_RUN_MINUTES)): box(1, 240, 1, "min"),
             vol.Required(CONF_STATUS_INTERVAL, default=o.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL)): box(MIN_STATUS_INTERVAL, 900, 5, "s"),
@@ -273,7 +273,7 @@ class HeadModelFlow(ConfigSubentryFlow):
         flow = start.get("flow")
         shown = round(flow / LITRES_PER_GALLON, 3) if us and flow else flow
         box = lambda lo, hi, step, unit=None: NumberSelector(NumberSelectorConfig(  # noqa: E731
-            min=lo, max=hi, step=step, mode=NumberSelectorMode.BOX, unit_of_measurement=unit))
+            min=lo, max=hi, step=step, mode=NumberSelectorMode.BOX, **({"unit_of_measurement": unit} if unit else {})))
         return self.async_show_form(step_id="model", data_schema=vol.Schema({
             vol.Required("brand", default=start.get("brand", "")): TextSelector(),
             vol.Required("model", default=start.get("model", "")): TextSelector(),

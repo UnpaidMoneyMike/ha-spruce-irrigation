@@ -115,7 +115,7 @@ class BaselineStore:
         """Accept the latest baseline for zones waiting for review (all by default), or keep their previous value."""
         latest = self.latest
         waiting = self.pending()
-        done = [z for z in (zones or list(waiting)) if z in waiting]
+        done = [z for z in (list(waiting) if zones is None else zones) if z in waiting]
         for zone in done:
             latest["review"][zone] = ACCEPTED if accept else KEPT
             if accept:

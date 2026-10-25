@@ -609,7 +609,7 @@
         },
         "heads": {
           "name": "Heads",
-          "description": "Rows with model (built-in key, custom:<id>, or brand and model as shown), arc in degrees and quantity (metres for drip line)."
+          "description": "Rows with model (a built-in key, a custom key, or brand and model as shown), arc in degrees and quantity (metres for drip line)."
         }
       }
     }
