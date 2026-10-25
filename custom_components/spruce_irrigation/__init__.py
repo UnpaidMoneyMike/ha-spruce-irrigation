@@ -63,7 +63,7 @@ PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CALENDAR, Platfor
              Platform.SWITCH, Platform.TIME, Platform.VALVE, Platform.WEATHER]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 HISTORY_IMPORTED = "history_imported"
-HISTORY_VERSION = 3   # 2: per zone per schedule as well; 3: rain and temperature; a lower stored version re-imports
+HISTORY_VERSION = 4   # 2: per zone per schedule; 3: rain and temperature; 4: flow per zone; a lower version re-imports
 
 
 @dataclass

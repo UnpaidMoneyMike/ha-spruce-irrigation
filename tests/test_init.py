@@ -509,3 +509,17 @@ async def test_week_sensors(hass: HomeAssistant, entry) -> None:
     plan = _sensor(hass, "week_plan")
     days = plan.attributes["days"]
     assert len(days) == 7 and days[0]["outcome"] == "rain" and days[1]["outcome"] == "water" and days[1]["minutes"] == 20
+
+
+async def test_flow_statistics(hass: HomeAssistant, entry) -> None:
+    """Each zone's measured flow per run is kept as a daily statistic (mean / min / max, L/min)."""
+    sid = statistic_id(CONTROLLER, 2, "flow")
+    start = dt_util.start_of_local_day(dt_util.now().date() - timedelta(days=30))
+    stats = await get_instance(hass).async_add_executor_job(
+        statistics_during_period, hass, start, None, {sid}, "day", None, {"mean", "min", "max"})
+    rows = stats[sid]
+    assert len(rows) == 1 and rows[0]["mean"] == pytest.approx(2.0 * 3.785411784, abs=0.01)
+    one = statistic_id(CONTROLLER, 1, "flow")
+    stats = await get_instance(hass).async_add_executor_job(
+        statistics_during_period, hass, start, None, {one}, "day", None, {"mean", "min"})
+    assert min(r["min"] for r in stats[one]) == 0.0           # the run that measured nothing shows as 0

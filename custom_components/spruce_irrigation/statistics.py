@@ -4,7 +4,9 @@ Spruce keeps water used per zone per schedule per day (as the flow meter counted
 was added. Each zone gets two external statistics, litres and minutes run, and so does each zone within each
 schedule that has watered it (zone_<n>_schedule_<id>_...); plus a controller total. Spruce's weather at the
 controller's location goes in alongside, so it can be charted with the watering: rain (mm per day, `_rain`) and the
-day's low and high temperature (°C, `_temperature`, min/max/mean). Each day's value is placed at
+day's low and high temperature (°C, `_temperature`, min/max/mean). Each zone's measured flow goes in too
+(`zone_<n>_flow`, L/min: the day's runs as mean / min / max), so flow per zone can be graphed over months and a
+leak or a blocked line shows as a step. Each day's value is placed at
 the start of that local day. Usable in the Energy dashboard (water) and in statistics graphs, and read
 back by anything that pulls Home Assistant statistics.
 """
@@ -102,6 +104,37 @@ async def _import(hass: HomeAssistant, entry, start: date, end: date) -> None:
         await _import_weather(hass, entry, start, end)
     except SpruceError as err:   # the weather is extra: the water statistics are in already
         _LOGGER.debug("Spruce weather history not imported this time: %s", err)
+    try:
+        await _import_flow(hass, entry, start, end)
+    except SpruceError as err:
+        _LOGGER.debug("Spruce flow history not imported this time: %s", err)
+
+
+async def _import_flow(hass: HomeAssistant, entry, start: date, end: date) -> None:
+    """Each zone's measured flow per run (gpm_data), as a daily mean / min / max in L/min."""
+    rt = entry.runtime_data
+    runs = []
+    chunk = start
+    while chunk <= end:
+        upto = min(chunk + timedelta(days=365), end + timedelta(days=1))
+        runs += await rt.api.gpm_data(rt.controller, chunk, upto)
+        chunk = upto + timedelta(days=1)
+    per_zone: dict[int, dict[date, list[float]]] = {}
+    for r in runs:
+        if r.get("DTepoch") is None or r.get("zone") is None or r.get("gpm") is None:
+            continue
+        day = dt_util.as_local(datetime.fromtimestamp(int(r["DTepoch"]), dt_util.UTC)).date()
+        if start <= day <= end:
+            per_zone.setdefault(int(r["zone"]), {}).setdefault(day, []).append(float(r["gpm"]) * LITRES_PER_GALLON)
+    zones = rt.history.data.zones
+    for zone, days in per_zone.items():
+        label = zones[zone].name if zone in zones else f"Zone {zone}"
+        points = [StatisticData(start=dt_util.start_of_local_day(day), mean=round(sum(v) / len(v), 2),
+                                min=round(min(v), 2), max=round(max(v), 2)) for day, v in sorted(days.items())]
+        async_add_external_statistics(hass, StatisticMetaData(
+            mean_type=StatisticMeanType.ARITHMETIC, has_sum=False, name=f"{rt.history.data.name} {label} flow",
+            source=DOMAIN, statistic_id=statistic_id(rt.controller, zone, "flow"), unit_class="volume_flow_rate",
+            unit_of_measurement="L/min"), points)
 
 
 async def _import_weather(hass: HomeAssistant, entry, start: date, end: date) -> None:

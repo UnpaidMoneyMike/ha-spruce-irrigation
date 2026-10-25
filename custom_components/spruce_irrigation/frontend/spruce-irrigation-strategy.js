@@ -56,7 +56,7 @@ async function collect(hass) {
 
     const short = ctrl.toLowerCase().replace(/[^a-z0-9]/g, "").slice(-8);
     const prefix = `${DOMAIN}:${short}_`;
-    c.stats = { total: null, rain: null, temperature: null, zones: {}, zoneMinutes: {}, schedules: {} };
+    c.stats = { total: null, rain: null, temperature: null, zones: {}, zoneMinutes: {}, schedules: {}, flow: {} };
     for (const s of stats) {
       const id = s.statistic_id;
       if (!id.startsWith(prefix)) continue;
@@ -68,6 +68,7 @@ async function collect(hass) {
       else if ((m = rest.match(/^zone_(\d+)_schedule_(\d+)_water$/))) (c.stats.schedules[m[2]] ??= []).push({ zone: m[1], id });
       else if ((m = rest.match(/^zone_(\d+)_water$/))) c.stats.zones[m[1]] = id;
       else if ((m = rest.match(/^zone_(\d+)_minutes$/))) c.stats.zoneMinutes[m[1]] = id;
+      else if ((m = rest.match(/^zone_(\d+)_flow$/))) c.stats.flow[m[1]] = id;
     }
     return c;
   });
@@ -98,6 +99,11 @@ const press = (entity, confirmation) => tile(entity, {
 });
 const heading = (text, icon) => ({ type: "heading", heading: text, ...(icon ? { icon } : {}) });
 const section = (cards, span) => ({ type: "grid", cards: cards.filter(Boolean), ...(span ? { column_span: span } : {}) });
+/** Measured flow per run (daily mean of the runs) for zones, with their baselines as lines when given. */
+const flowChart = (title, series, days) => (series.length ? {
+  type: "statistics-graph", title, entities: series, period: "day", days_to_show: days, stat_types: ["mean"],
+  chart_type: "line", hide_legend: series.length < 2, grid_options: { columns: "full" },
+} : null);
 const waterChart = (title, entities, period, days, chart = "bar") => ({
   type: "statistics-graph", title, entities, period, days_to_show: days, stat_types: ["change"],
   chart_type: chart, hide_legend: entities.length < 2, grid_options: { columns: "full" },
@@ -255,6 +261,10 @@ function zonesView(hass, c, zones) {
         e.next_watering ? md(budget(e.next_watering), { text_only: true }) : null,
       ];
     }),
+    flowChart("Flow per run, last 90 days", members.flatMap((z) => [
+      c.stats.flow[z] ? { entity: c.stats.flow[z], name: members.length > 1 ? zones[z] : "Flow" } : null,
+      c.zones[z].baseline_flow ? { entity: c.zones[z].baseline_flow, name: `${members.length > 1 ? zones[z] + " " : ""}baseline` } : null,
+    ]).filter(Boolean), 90),
     members.some((z) => c.stats.zones[z]) ? waterChart("Water, last 30 days",
       members.filter((z) => c.stats.zones[z]).map((z) => ({ entity: c.stats.zones[z], name: zones[z] })), "day", 30) : null,
   ]));
@@ -399,6 +409,14 @@ function healthView(c, zones) {
         press(e.run_baseline, "Run a flow baseline? Every enabled zone waters for about a minute."),
         whenReview(e, press(e.accept_baseline, "Accept the new baseline for the zones waiting for review?")),
         whenReview(e, press(e.keep_previous_baseline, "Keep the previous baseline for the zones waiting for review?"))]),
+      e.flow_rate ? section([heading("Live flow", "mdi:waves-arrow-right"),
+        { type: "history-graph", title: "Flow rate, last hour", hours_to_show: 1, entities: [{ entity: e.flow_rate, name: "Flow" }],
+          grid_options: { columns: "full" } }], 2) : null,
+      Object.keys(c.stats.flow).length ? section([heading("Flow by zone", "mdi:chart-line"),
+        flowChart("Measured flow per run, last 90 days", byNumber(c.stats.flow).filter((z) => zones[z] && c.zones[z]?.valve)
+          .map((z) => ({ entity: c.stats.flow[z], name: zones[z] })), 90),
+        flowChart("Last 12 months", byNumber(c.stats.flow).filter((z) => zones[z] && c.zones[z]?.valve)
+          .map((z) => ({ entity: c.stats.flow[z], name: zones[z] })), 365)], 3) : null,
       checks.length ? section([heading("Flow check", "mdi:water-alert"), md(
         `Last run against the design flow from the zone's heads, else the accepted baseline (${unit}).\n\n`
         + "| Zone | Design | Baseline | Last run | Check |\n|---|---|---|---|---|\n" + checks.map(row).join("\n"))], 2) : null,
