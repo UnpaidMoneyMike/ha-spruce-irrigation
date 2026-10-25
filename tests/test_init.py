@@ -535,3 +535,17 @@ async def test_record_old_baselines(hass: HomeAssistant, entry) -> None:
     ids = [b["id"] for b in history]
     assert "manual-2019-12-17T1635" in ids and "manual-2019-12-17T2117" in ids
     assert next(b for b in history if b["id"] == "manual-2019-12-17T2117")["suspect"] is True
+
+
+async def test_meter_minimum(hass: HomeAssistant, mock_api) -> None:
+    """A drip zone under the meter's minimum flow isn't judged (no flow fault, no no-flow notice)."""
+    from custom_components.spruce_irrigation.const import CONF_METER_MIN
+
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=CONTROLLER, title="Test Spruce",
+                            data={CONF_API_KEY: "k", CONF_CONTROLLER: CONTROLLER}, options={CONF_METER_MIN: 9.0})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await async_wait_recording_done(hass)
+    assert _sensor(hass, "zone_2_flow_check").state == "below_meter_range"      # 2 gpm = 7.6 L/min < 9
+    assert _sensor(hass, "zone_1_flow_check").state == "no_flow"                # 8 gpm zone still judged

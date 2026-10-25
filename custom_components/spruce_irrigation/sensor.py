@@ -180,7 +180,7 @@ def _round(v):
 
 # ---- flow baseline, design flow and flow check -------------------------------------------------------------------
 
-CHECKS = ["ok", "high", "low", "no_flow", "no_reference", "no_run"]
+CHECKS = ["ok", "high", "low", "no_flow", "no_reference", "no_run", "below_meter_range"]
 
 
 def _flow(rt, lpm):
@@ -207,6 +207,8 @@ def _reference(rt, z) -> tuple[float | None, str | None]:
 
 def _check(a) -> str:
     rt, z = a
+    if z in rt.history.data.below_range:
+        return "below_meter_range"
     ref, _ = _reference(rt, z)
     last = rt.history.data.last_run.get(z, {}).get("lpm")
     if ref is None:

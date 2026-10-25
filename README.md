@@ -97,6 +97,9 @@ entry. If you change your Spruce password the key changes and Home Assistant wil
 - **General:** instant updates (off by default), default zone run time, live status refresh (default 60 s), water/flow history refresh (default 15 min)
   the flow-fault threshold (default: a run under 20% of the zone's usual flow) and the baseline review tolerance
   (default 25%).
+- **Flow meter minimum flow:** the lowest flow your meter reads reliably (its Q1). Low-flow zones (often drip) under it
+  show *Below meter range* instead of false flow faults, no-flow notices or baseline reviews. Hall-effect meters
+  (e.g. a 1" YF-B10, 2–50 L/min) miss pulses below their minimum, so such zones often read 0.
 - **Units:** metric (default: L, L/min, mm, °C, km/h), US (gal, gal/min, in, °F, mph), or custom per quantity.
   Spruce stores US units; the integration converts both ways.
 - **Water price:** per kL (per 1000 gal with US volume) in your Home Assistant currency, or an entity holding

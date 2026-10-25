@@ -18,6 +18,7 @@ DEFAULT_HISTORY_INTERVAL = 900      # seconds: water per day, measured flow, act
 DEFAULT_FAULT_SHARE = 0.2           # a run measuring under 20% of the zone's usual flow is a flow fault
 MIN_STATUS_INTERVAL = 30
 CONF_INSTANT = "instant_updates"     # listen to Spruce's zone status stream (off by default)
+CONF_METER_MIN = "meter_min_flow"   # L/min the flow meter reads reliably from (its Q1); 0 = no limit
 CONF_REVIEW_TOLERANCE = "review_tolerance"
 DEFAULT_REVIEW_TOLERANCE = 0.25     # a new baseline more than 25% from design / the accepted one needs review
 

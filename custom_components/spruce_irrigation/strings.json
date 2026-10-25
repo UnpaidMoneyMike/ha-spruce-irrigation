@@ -81,7 +81,8 @@
           "history_interval": "Water and flow history refresh",
           "fault_share": "Flow fault threshold",
           "review_tolerance": "Baseline review tolerance",
-          "instant_updates": "Instant updates"
+          "instant_updates": "Instant updates",
+          "meter_min_flow": "Flow meter minimum flow"
         },
         "data_description": {
           "default_run_minutes": "Used when a zone valve is opened without a run time (each zone also has its own Run time setting).",
@@ -89,7 +90,8 @@
           "history_interval": "How often to read water used, measured flow, settings and the activity log.",
           "fault_share": "A run measuring less than this share of the zone's usual flow is a flow fault (0.2 = 20%).",
           "review_tolerance": "A new flow baseline that moves a zone more than this share from its design flow (or its last accepted baseline) waits for your review (0.25 = 25%).",
-          "instant_updates": "Listen to Spruce's live zone status so valves change within seconds instead of at the next refresh. Keeps a connection to Spruce open; off by default."
+          "instant_updates": "Listen to Spruce's live zone status so valves change within seconds instead of at the next refresh. Keeps a connection to Spruce open; off by default.",
+          "meter_min_flow": "The lowest flow your flow meter reads reliably (its Q1 / start flow, from its data sheet; e.g. 2 L/min for a 1\" Hall-effect sensor). Zones flowing less (often drip) are shown as below the meter range and left out of flow faults, no-flow notices and baseline review. 0 = no limit."
         }
       },
       "units": {
@@ -372,7 +374,8 @@
           "low": "Lower than expected",
           "no_flow": "No flow",
           "no_reference": "No reference",
-          "no_run": "Not run yet"
+          "no_run": "Not run yet",
+          "below_meter_range": "Below meter range"
         }
       },
       "zone_next_watering": {

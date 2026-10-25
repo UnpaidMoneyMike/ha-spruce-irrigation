@@ -74,7 +74,8 @@ class BaselineStore:
 
     # ---- changing --------------------------------------------------------------------------------------------------
 
-    def observe(self, current: dict[int, dict[str, Any]], design: dict[int, float], tolerance: float) -> dict | None:
+    def observe(self, current: dict[int, dict[str, Any]], design: dict[int, float], tolerance: float,
+                skip: set[int] | None = None) -> dict | None:
         """Look at Spruce's current baseline ({zone: {id, lpm, at}}); a baseline not seen before is stored and
         reviewed. Returns the new snapshot, or None."""
         if not current:
@@ -89,7 +90,8 @@ class BaselineStore:
                     "source": "spruce", "zones": zones, "review": {}}
         for zone, lpm in zones.items():
             ref = design.get(zone) or self.reference(zone)
-            if ref is None or ref <= 0 or abs(lpm - ref) / ref <= tolerance:
+            # below the meter's range a change says nothing: take it as it is
+            if ref is None or ref <= 0 or zone in (skip or ()) or abs(lpm - ref) / ref <= tolerance:
                 snapshot["review"][zone] = ACCEPTED
                 self.accepted[zone] = {"lpm": lpm, "id": baseline_id}
             else:

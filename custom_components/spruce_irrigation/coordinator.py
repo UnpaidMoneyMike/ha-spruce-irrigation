@@ -21,6 +21,7 @@ from .const import (
     BASELINE_STALE,
     CONF_FAULT_SHARE,
     CONF_HISTORY_INTERVAL,
+    CONF_METER_MIN,
     CONF_REVIEW_TOLERANCE,
     CONF_STATUS_INTERVAL,
     DEFAULT_FAULT_SHARE,
@@ -95,6 +96,7 @@ class HistoryData:
     flow_fault: dict[int, bool] = field(default_factory=dict)          # zone's last run measured ~no flow
     network: dict[str, Any] = field(default_factory=dict)
     baseline: dict[int, dict] = field(default_factory=dict)            # Spruce's current baseline: zone -> {id, lpm, at}
+    below_range: set[int] = field(default_factory=set)                 # zones whose flow is under the meter's minimum
     forecast: dict[str, list] = field(default_factory=dict)            # WeatherKit: {daily: [...], hourly: [...]}
     rain_daily: dict[date, float] = field(default_factory=dict)        # recorded rain, mm per day (last 2 weeks)
     climate_rules: list[int] = field(default_factory=list)              # climate adjust: 12 monthly percentages
@@ -327,10 +329,27 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
                 seen = _int(b.get("DTepoch"))
                 data.baseline[int(key)] = {"id": str(b.get("id")), "lpm": _float(b["gpm"]) * LITRES_PER_GALLON,
                                            "at": datetime.fromtimestamp(seen, timezone.utc) if seen else None}
+        self._below_meter_range(data)
         self._raise_flow_issue(data)
         self.review_baseline(data)
         self._raise_health_issues(data)
         return data
+
+    def _below_meter_range(self, data: HistoryData) -> None:
+        """Zones whose flow is under the meter's minimum (its Q1, an option): a Hall-effect meter misses pulses there,
+        so their readings (often 0) say nothing about leaks or faults. A zone counts as below when every estimate of
+        its flow — design (heads), accepted baseline, Spruce's baseline, usual measured flow — is under the minimum."""
+        minimum = float(self.entry.options.get(CONF_METER_MIN) or 0)
+        if not minimum:
+            return
+        designs = {z: d.lpm for z, d in design(self.entry).items() if d.lpm > 0}
+        for z in data.zones:
+            estimates = [v for v in (designs.get(z), self.baselines.reference(z) if self.baselines else None,
+                                     data.baseline.get(z, {}).get("lpm"), data.usual_lpm.get(z)) if v]
+            if not estimates or max(estimates) < minimum:
+                data.below_range.add(z)
+        for z in data.below_range:
+            data.flow_fault[z] = False
 
     def review_baseline(self, data: HistoryData) -> None:
         """Store a baseline not seen before and review it; tell the user when one lands (not the first one seen)."""
@@ -339,7 +358,8 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
         first = not self.baselines.snapshots
         designs = {z: d.lpm for z, d in design(self.entry).items() if d.lpm > 0}
         snapshot = self.baselines.observe(data.baseline, designs,
-                                          self.entry.options.get(CONF_REVIEW_TOLERANCE, DEFAULT_REVIEW_TOLERANCE))
+                                          self.entry.options.get(CONF_REVIEW_TOLERANCE, DEFAULT_REVIEW_TOLERANCE),
+                                          skip=data.below_range)
         pending = self.baselines.pending()
         issue_id = f"baseline_review_{self.controller}"
         name = lambda z: data.zones[z].name if z in data.zones else f"Zone {z}"   # noqa: E731
@@ -367,7 +387,8 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
         """Repairs notices for things the Spruce app only hints at."""
         name = lambda z: data.zones[z].name if z in data.zones else f"Zone {z}"   # noqa: E731
         enabled = {z for z, zone in data.zones.items() if zone.enabled}
-        no_flow = sorted(z for z, b in data.baseline.items() if z in enabled and b["lpm"] < NO_FLOW_LPM)
+        no_flow = sorted(z for z, b in data.baseline.items()
+                         if z in enabled and z not in data.below_range and b["lpm"] < NO_FLOW_LPM)
         offset = data.flow_meter.get("offset")
         stamps = [b["at"] for b in data.baseline.values() if b.get("at")]
         stale = bool(stamps) and dt_util.utcnow() - max(stamps) > BASELINE_STALE
