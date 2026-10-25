@@ -196,6 +196,7 @@ function zonesView(c, zones) {
         tile(e.run_time, { name: "Run time", features: [{ type: "numeric-input", style: "buttons" }] }),
         tile(e.water_today, { name: "Water today" }),
         tile(e.last_run, { name: "Last run" }),
+        tile(e.next_watering, { name: "Next watering", state_content: ["state", "minutes", "days_next_7"] }),
         tile(e.last_flow, { name: "Last flow" }),
         tile(e.usual_flow, { name: "Usual flow" }),
         tile(e.flow_fault, { name: "Flow fault" }),
@@ -233,6 +234,19 @@ function schedulesView(hass, c, zones, schedules) {
       series.length ? waterChart("Water by zone, last 30 days", series, "day", 30) : null,
     ]);
   });
+  const zonesPlanned = byNumber(c.zones).filter((z) => c.zones[z].next_watering);
+  if (zonesPlanned.length) {   // Spruce's projection per zone, as its schedule page shows it
+    const when = "%a %-d %b %-I:%M %p";
+    sections.unshift(section([heading("Next 7 days by zone", "mdi:calendar-week"), {
+      type: "markdown", grid_options: { columns: "full" },
+      content: "| Zone | Next | Minutes | Days in next 7 | Why |\n|---|---|---|---|---|\n" + zonesPlanned.map((z) => {
+        const id = c.zones[z].next_watering;
+        return `{% set a = states['${id}'].attributes %}| ${zones[z]} | {% if states('${id}') not in ['unknown', 'unavailable'] %}`
+          + `{{ as_timestamp(states('${id}')) | timestamp_custom('${when}') }}{% else %}–{% endif %}`
+          + " | {{ a.minutes or '–' }} | {{ a.days_next_7 }} (avg {{ a.average_minutes }} min) | {{ a.message or a.today or '' }} |";
+      }).join("\n"),
+    }], 2));
+  }
   if (c.entities.plan) {
     sections.unshift(section([
       heading("Watering plan", "mdi:calendar-month"),

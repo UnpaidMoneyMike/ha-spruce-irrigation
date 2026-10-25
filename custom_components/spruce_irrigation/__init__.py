@@ -5,13 +5,14 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 from types import MappingProxyType
 
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import Platform
-from homeassistant.core import HassJob, HomeAssistant, ServiceCall, callback
+from homeassistant.core import HassJob, HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -41,6 +42,7 @@ from .const import (
     SERVICE_SET_SCHEDULE_DAYS,
     SERVICE_REVIEW_BASELINE,
     SERVICE_RUN_BASELINE,
+    SERVICE_SCHEDULE_DAY,
     SERVICE_SET_SCHEDULE_ZONE,
     SERVICE_SET_ZONE_HEADS,
     SERVICE_STOP,
@@ -266,6 +268,7 @@ ZONE_FIELDS = {
     "wind_skip": ("wind_delay_enabled", "wind_skip"), "mode": ("schedule_mode", "mode"), "cycles": ("cycles", "cycles"),
     "weekly_min": ("weekly_safeguard_min", "weekly_min"), "weekly_max": ("weekly_safeguard_max", "weekly_max"),
     "climate_adjust": ("climate_adjust_enabled", "climate_adjust"),
+    "moisture_threshold": ("moisture_setpoint", "moisture_threshold"),
 }
 SCHEMAS = {
     SERVICE_RUN_ALL: vol.Schema({DEVICE: cv.string, vol.Required("minutes"): vol.All(vol.Coerce(float), vol.Range(min=1, max=240))}),
@@ -298,7 +301,8 @@ SCHEMAS = {
         vol.Optional("cycles"): vol.In(["auto", "1", "2", "3", "4"]),
         vol.Optional("weekly_min"): vol.All(vol.Coerce(float), vol.Range(min=0, max=7)),
         vol.Optional("weekly_max"): vol.All(vol.Coerce(float), vol.Range(min=0, max=7)),
-        vol.Optional("climate_adjust"): cv.boolean}),
+        vol.Optional("climate_adjust"): cv.boolean,
+        vol.Optional("moisture_threshold"): vol.All(vol.Coerce(int), vol.Range(min=1, max=59))}),
     SERVICE_CREATE_SCHEDULE: vol.Schema({DEVICE: cv.string, vol.Required("name"): cv.string,
                                          vol.Optional("type", default="connected"): vol.In(["connected", "basic", "manual"])}),
     SERVICE_DELETE_SCHEDULE: vol.Schema({DEVICE: cv.string, vol.Required("schedule"): cv.string}),
@@ -402,6 +406,32 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     for name, schema in SCHEMAS.items():
         hass.services.async_register(DOMAIN, name, handle, schema=schema)
+
+    async def schedule_day(call: ServiceCall) -> ServiceResponse:
+        """A schedule's day: Spruce's plan (per zone: minutes, cycles, why, water budget) and, for a past day, what
+        actually ran."""
+        rt: SpruceRuntime = _entry_for(hass, call.data.get("device_id")).runtime_data
+        sid, day = _schedule_id(rt, call.data["schedule"]), call.data["date"]
+        schedule = rt.history.data.schedules[sid]
+        zones = rt.history.data.zones
+        name = lambda z: zones[z].name if z in zones else f"Zone {z}"   # noqa: E731
+        plan = next((d for d in schedule.get("plan", {}).values() if d["day"] == day), None)
+        result: dict[str, Any] = {"schedule": schedule["name"], "date": day.isoformat()}
+        if plan:
+            result.update({"start": plan["start"].isoformat(), "minutes": round(plan["seconds"] / 60),
+                           "skipped": plan["reason"], "message": plan["message"],
+                           "zones": {name(z): v for z, v in sorted(plan["detail"].items())}})
+        if day < dt_util.now().date():
+            try:
+                ran = await rt.api.schedule_day(sid, day)
+            except SpruceError as err:
+                raise HomeAssistantError(str(err)) from err
+            result["ran"] = {name(int(z)) if str(z).isdigit() else str(z): v for z, v in ran.items()}
+        return result
+
+    hass.services.async_register(DOMAIN, SERVICE_SCHEDULE_DAY, schedule_day, schema=vol.Schema({
+        DEVICE: cv.string, vol.Required("schedule"): cv.string, vol.Required("date"): cv.date}),
+        supports_response=SupportsResponse.ONLY)
     await _async_register_dashboard(hass)
     return True
 

@@ -288,6 +288,12 @@ class SpruceApi:
         await self.save_schedule_settings(controller, schedule_id, {"schedule_name": name})
         return schedule_id
 
+    async def schedule_day(self, schedule_id: int, day: date) -> dict:
+        """What a schedule actually did on a past day, per zone: start times, durations, gpm, notes."""
+        data = await self._request("GET", "app/api/schedule_history_zone_state",
+                                   {"schedule_id": schedule_id, "date": day.isoformat()})
+        return data if isinstance(data, dict) else {}
+
     async def delete_schedule(self, controller: str, schedule_id: int) -> None:
         """Delete a schedule from the account, then from the controller (as the app does)."""
         await self._request("DELETE", f"app/api/schedule/{schedule_id}")

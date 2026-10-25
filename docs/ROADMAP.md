@@ -156,7 +156,7 @@ out of scope for this integration until proven; tracked separately.
 | 0.6 ✅ | §1 fixes; unit system and water price options; controller settings (max manual time, pump delay, concurrent zones, zone enabled); wind threshold; flow meter switches and limits; outlet switches + repeater health |
 | 0.7 ✅ | Flow baseline button + baseline sensors + baseline history; head library, zone specs, design flow and baseline review; Repairs for calibration / no-flow zones / stale baseline / silent repeaters (the live flow sensor moved to 1.0: it needs the live stream) |
 | 0.8 ✅ | Schedules: create / delete, start mode + offset, days, watering window, per-zone mode / cycles / weekly limits; manual and basic schedule editing services |
-| 0.9 | Plan detail: per-zone reasons and water budget; projections; past day detail; sensor settings (threshold, polling, learn mode) |
+| 0.9 ✅ | Plan detail: per-zone reasons and water budget; projections; past day detail; sensor settings (threshold, polling, learn mode) |
 | 0.10 | Charts: `chart_data` / `sensor_data` statistics and Place-style dashboard; climate adjust; weather entity |
 | 1.0 | Instant updates and live flow (stream), Logbook / event entities, blueprints, cost, diagnostics; quality pass for HACS default / core |
 

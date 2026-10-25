@@ -57,7 +57,10 @@ def fake_api() -> AsyncMock:
                        (today + timedelta(days=1)).isoformat(): {
                            "is_scheduled": True, "total_duration_seconds": 1200, "epoch_time": epoch + 86400,
                            "message": "Watering for 20 minutes.",
-                           "zone": {"1": {"water_duration_minutes": 12}, "2": {"water_duration_minutes": 8}}},
+                           "zone": {"1": {"water_duration_minutes": 12, "cycles": 2, "message": "Watering for 12 minutes.",
+                                          "water_budget": {"projected_water_balance": 0.5, "water_needed_inches": 0.8,
+                                                           "is_invalid": False}},
+                                    "2": {"water_duration_minutes": 8}}},
                        "average": {}}},
             "12": {"schedule_name": "Manual", "schedule_type": "manual", "sched_enabled": "1",
                    "master_controller": CONTROLLER},

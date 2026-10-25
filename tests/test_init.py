@@ -407,3 +407,24 @@ async def test_schedule_editing(hass: HomeAssistant, entry, mock_api) -> None:
     await hass.services.async_call(DOMAIN, "rename_schedule", {"schedule": "Morning", "name": "Dawn"}, blocking=True)
     mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"schedule_name": "Dawn"}, None)
     await hass.async_block_till_done(wait_background_tasks=True)   # a new name reloads the integration
+
+
+async def test_zone_plan_and_schedule_day(hass: HomeAssistant, entry, mock_api) -> None:
+    nxt = _sensor(hass, "zone_1_next_watering")
+    assert nxt.state not in ("unknown", "unavailable")
+    assert nxt.attributes["schedule"] == "Morning" and nxt.attributes["minutes"] == 12
+    assert nxt.attributes["cycles"] == 2 and nxt.attributes["message"] == "Watering for 12 minutes."
+    assert nxt.attributes["water_budget"]["needed_mm"] == 20.3 and nxt.attributes["water_budget"]["soil_water_mm"] == 12.7
+
+    day = (dt_util.now().date() - timedelta(days=1))
+    mock_api.schedule_day.return_value = {"1": {"zone_label": "Front Lawn", "duration": [600], "gpm": [8.0]}}
+    result = await hass.services.async_call(DOMAIN, "get_schedule_day", {"schedule": "Morning", "date": day.isoformat()},
+                                            blocking=True, return_response=True)
+    assert result["schedule"] == "Morning" and result["message"] == "No watering needed today."
+    assert result["ran"]["Front Lawn"]["duration"] == [600]
+    mock_api.schedule_day.assert_awaited_with(11, day)
+
+    await hass.services.async_call(DOMAIN, "set_schedule_zone", {"schedule": "Morning", "zone": "1",
+                                                                 "moisture_threshold": 28}, blocking=True)
+    mock_api.save_schedule_zones.assert_awaited_with(CONTROLLER, 11, {1: {"moisture_setpoint": "28"},
+                                                                     2: {"moisture_setpoint": "28"}})

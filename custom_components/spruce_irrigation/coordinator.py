@@ -32,6 +32,7 @@ from .const import (
     EVENT_SPRUCE,
     HISTORY_DAYS,
     LITRES_PER_GALLON,
+    MM_PER_INCH,
     OUTLET_SILENT,
     WORKING_GPM,
 )
@@ -443,7 +444,24 @@ def _plan_day(day: str, d: dict, tz: str | None) -> dict:
     zones = {int(z): round(_float(v.get("water_duration_minutes")) or 0, 1)
              for z, v in (d.get("zone") or {}).items() if str(z).isdigit() and isinstance(v, dict)}
     return {"day": date.fromisoformat(day), "start": start, "seconds": seconds, "reason": reason,
-            "message": d.get("message"), "zones": {z: m for z, m in zones.items() if m}}
+            "message": d.get("message"), "zones": {z: m for z, m in zones.items() if m},
+            "detail": {int(z): _zone_day(v) for z, v in (d.get("zone") or {}).items()
+                       if str(z).isdigit() and isinstance(v, dict)}}
+
+
+def _zone_day(v: dict) -> dict:
+    """One zone on one plan day: minutes, cycles, why (Spruce's message) and its water budget in mm."""
+    budget = v.get("water_budget") if isinstance(v.get("water_budget"), dict) else {}
+    mm = lambda key: round(_float(budget.get(key)) * MM_PER_INCH, 1) if _float(budget.get(key)) is not None else None  # noqa: E731
+    return {
+        "minutes": round(_float(v.get("water_duration_minutes")) or 0, 1), "cycles": _int(v.get("cycles")),
+        "message": v.get("message"),
+        "skip": next((r for r, flag in (("rain", "is_rain_delay"), ("rain_sensor", "is_rain_sensor_delay"),
+                                         ("freeze", "is_freeze_delay"), ("wind", "is_wind_delay")) if v.get(flag)), None),
+        "budget": {"soil_water_mm": mm("projected_water_balance"), "after_watering_mm": mm("projected_water_balance_after_watering"),
+                   "needed_mm": mm("water_needed_inches"), "scheduled_mm": mm("water_scheduled_inches"),
+                   "allowed_depletion_mm": mm("allowed_depletion_inches")} if budget and not budget.get("is_invalid") else None,
+    }
 
 
 def _watering_days(s: dict) -> str | None:

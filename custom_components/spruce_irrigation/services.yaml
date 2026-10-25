@@ -138,6 +138,12 @@ set_schedule_zone:
     climate_adjust:
       selector:
         boolean:
+    moisture_threshold:
+      selector:
+        number:
+          min: 1
+          max: 59
+          unit_of_measurement: "%"
 run_baseline:
   fields:
     device_id: *device
@@ -248,3 +254,14 @@ set_schedule_days:
           options:
             - "even"
             - "odd"
+get_schedule_day:
+  fields:
+    device_id: *device
+    schedule:
+      required: true
+      selector:
+        text:
+    date:
+      required: true
+      selector:
+        date:

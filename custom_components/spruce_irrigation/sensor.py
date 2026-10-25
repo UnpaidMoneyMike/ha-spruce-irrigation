@@ -274,6 +274,45 @@ def _review_attrs(rt) -> dict[str, Any]:
         for z, p in sorted(pending.items())}}
 
 
+def _zone_days(rt, z) -> list[tuple[dict, dict, dict]]:
+    """(schedule, day, the zone's detail) for every plan day that waters this zone, soonest first."""
+    return [(s, d, d["detail"].get(z, {})) for s, d in planned_days(rt) if d["seconds"] and d["zones"].get(z)]
+
+
+def _zone_next(a):
+    rt, z = a
+    now = dt_util.utcnow()
+    return next((d["start"] for _, d, _ in _zone_days(rt, z) if d["start"] > now), None)
+
+
+def _zone_next_attrs(a) -> dict[str, Any]:
+    """The next watering of a zone, Spruce's projection for the coming week, and its water budget (mm)."""
+    rt, z = a
+    now = dt_util.utcnow()
+    upcoming = [(s, d, detail) for s, d, detail in _zone_days(rt, z) if d["start"] > now]
+    week = [d for _, d, _ in upcoming if d["start"] < now + timedelta(days=7)]
+    attrs: dict[str, Any] = {
+        "days_next_7": len({d["day"] for d in week}),
+        "average_minutes": round(sum(d["zones"][z] for d in week) / len(week)) if week else 0,
+    }
+    if upcoming:
+        schedule, day, detail = upcoming[0]
+        attrs.update({"schedule": schedule["name"], "minutes": day["zones"][z], "cycles": detail.get("cycles"),
+                      "message": detail.get("message") or day["message"], "water_budget": detail.get("budget")})
+    today = dt_util.now().date()
+    todays = [d["detail"].get(z) for _, d in planned_days(rt) if d["day"] == today and d["detail"].get(z)]
+    if todays:
+        attrs["today"] = todays[0].get("message")
+        attrs["today_skip"] = todays[0].get("skip")
+    return attrs
+
+
+PLAN_ZONE_SENSORS = (
+    SpruceSensorDescription(key="next_watering", translation_key="zone_next_watering", device_class=SensorDeviceClass.TIMESTAMP,
+                            icon="mdi:calendar-clock", value_fn=_zone_next, attrs_fn=_zone_next_attrs),
+)
+
+
 BASELINE_CONTROLLER_SENSORS = (
     SpruceSensorDescription(key="last_baselined", translation_key="last_baselined", device_class=SensorDeviceClass.TIMESTAMP,
                             icon="mdi:chart-bell-curve", value_fn=_last_baselined, attrs_fn=_history_attrs),
@@ -302,7 +341,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddC
                                     for d in CONTROLLER_SENSORS + BASELINE_CONTROLLER_SENSORS]
     for z, zone in rt.history.data.zones.items():
         if zone.enabled:
-            entities += [SpruceZoneSensor(entry, z, d) for d in ZONE_SENSORS + BASELINE_ZONE_SENSORS]
+            entities += [SpruceZoneSensor(entry, z, d) for d in ZONE_SENSORS + BASELINE_ZONE_SENSORS + PLAN_ZONE_SENSORS]
     for sid in rt.status.data.sensors:
         entities += [SpruceMoistureSensor(entry, sid, d) for d in MOISTURE_SENSORS]
     entities += [SpruceCostSensor(entry, key) for key in ("water_cost_today", "water_cost_month")]

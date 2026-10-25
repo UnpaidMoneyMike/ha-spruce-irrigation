@@ -369,6 +369,9 @@
           "no_reference": "No reference",
           "no_run": "Not run yet"
         }
+      },
+      "zone_next_watering": {
+        "name": "{zone} next watering"
       }
     },
     "time": {
@@ -577,6 +580,10 @@
         "climate_adjust": {
           "name": "Climate adjust",
           "description": "Scale watering by month (the controller's climate adjust)."
+        },
+        "moisture_threshold": {
+          "name": "Moisture threshold",
+          "description": "Sensor mode: water when the zone's sensor reads below this moisture (%)."
         }
       }
     },
@@ -743,6 +750,24 @@
         "even_odd": {
           "name": "Even or odd days",
           "description": "Water on even or odd dates."
+        }
+      }
+    },
+    "get_schedule_day": {
+      "name": "Get a schedule day",
+      "description": "Returns a schedule's day: Spruce's plan per zone (minutes, cycles, why, water budget in mm) and, for a past day, what actually ran.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "Schedule name as in the Spruce app."
+        },
+        "date": {
+          "name": "Date",
+          "description": "The day."
         }
       }
     }
