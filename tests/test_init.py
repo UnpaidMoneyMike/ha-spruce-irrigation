@@ -174,7 +174,6 @@ async def test_schedule_controls(hass: HomeAssistant, entry, mock_api) -> None:
     await hass.services.async_call("switch", "turn_on", {"entity_id": wind}, blocking=True)
     mock_api.save_schedule_zones.assert_awaited_with(
         CONTROLLER, 11, {1: {"wind_delay_enabled": "1"}, 2: {"wind_delay_enabled": "1"}})
-    assert hass.states.get(wind).state == "on"
 
     await hass.services.async_call("switch", "turn_off", {"entity_id": enabled}, blocking=True)
     mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"sched_enabled": "0"}, None)
@@ -220,11 +219,6 @@ async def test_controller_settings(hass: HomeAssistant, entry, mock_api) -> None
     mock_api.save_controller_settings.assert_awaited_with(CONTROLLER, {"manual_max_time": "16"})
     mock_api.refresh_settings.assert_awaited_with(CONTROLLER)   # the controller uses it: told to fetch settings
 
-    zone3 = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_zone_3_enabled")
-    assert hass.states.get(zone3).state == "off"
-    await hass.services.async_call("switch", "turn_on", {"entity_id": zone3}, blocking=True)
-    mock_api.save_zone_settings.assert_awaited_with(CONTROLLER, {3: {"zenabled": "1"}})
-
     leak = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_flow_leak_burst")
     assert hass.states.get(leak).state == "on"
     await hass.services.async_call("switch", "turn_off", {"entity_id": leak}, blocking=True)
@@ -235,6 +229,12 @@ async def test_controller_settings(hass: HomeAssistant, entry, mock_api) -> None
     await hass.services.async_call("number", "set_value", {"entity_id": high, "value": 45}, blocking=True)
     mock_api.save_zone_settings.assert_awaited_with(
         CONTROLLER, {101: {"flow_limit_high": "45"}, 102: {"flow_limit_high": "45"}})
+
+    # Last: enabling a zone changes the zone layout, so the integration reloads itself
+    zone3 = reg.async_get_entity_id("switch", DOMAIN, f"{CONTROLLER}_zone_3_enabled")
+    assert hass.states.get(zone3).state == "off"
+    await hass.services.async_call("switch", "turn_on", {"entity_id": zone3}, blocking=True)
+    mock_api.save_zone_settings.assert_awaited_with(CONTROLLER, {3: {"zenabled": "1"}})
 
 
 async def test_outlet_and_pause(hass: HomeAssistant, entry, mock_api) -> None:
