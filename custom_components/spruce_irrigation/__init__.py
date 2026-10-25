@@ -77,6 +77,7 @@ class SpruceRuntime:
     units: Units = field(default_factory=lambda: Units({}))
     baselines: BaselineStore | None = None
     live: Live | None = None
+    loaded_with: tuple = ()
 
     def baselines_changed(self) -> None:
         """After a baseline is recorded, accepted or kept: re-check the review notice and update the entities."""
@@ -211,6 +212,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> bo
     entry.async_on_unload(status.async_add_listener(_check_layout))
     if entry.data.get(HISTORY_IMPORTED) != HISTORY_VERSION:
         entry.async_create_background_task(hass, _first_import(hass, entry), "spruce history import")
+    entry.runtime_data.loaded_with = _settings(entry)
     entry.async_on_unload(entry.add_update_listener(_options_updated))
     if entry.options.get(CONF_INSTANT):
         entry.runtime_data.live.start_stream(entry)
@@ -249,8 +251,16 @@ async def _first_import(hass: HomeAssistant, entry: SpruceConfigEntry) -> None:
     hass.config_entries.async_update_entry(entry, data={**entry.data, HISTORY_IMPORTED: HISTORY_VERSION})
 
 
+def _settings(entry: SpruceConfigEntry) -> tuple:
+    """What a reload is for: the options, and the head models and zone heads (subentries)."""
+    return (dict(entry.options), {sid: (sub.title, dict(sub.data)) for sid, sub in entry.subentries.items()})
+
+
 async def _options_updated(hass: HomeAssistant, entry: SpruceConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
+    """Reload for changed options or subentries; not for the integration's own notes in the entry's data (such as
+    the history import version), which would otherwise reload it after every import."""
+    if _settings(entry) != entry.runtime_data.loaded_with:
+        await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: SpruceConfigEntry) -> None:
