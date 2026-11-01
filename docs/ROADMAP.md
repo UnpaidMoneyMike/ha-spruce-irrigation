@@ -2,7 +2,7 @@
 
 Where the integration goes next: everything the Spruce web app can do, done in Home Assistant, plus what Home
 Assistant can add. Built on [`spruce-app-reference.md`](spruce-app-reference.md) (what the app shows and calls)
-and on write tests made through the app in October 2026 (the exact request each Save sends — §6 below).
+and on write tests made through the app in October 2026 (the exact request each Save sends — §5 below).
 
 Status today (0.5.x): zone valves and run times, run / stop schedules, run all, stop, hibernate, pair sensor;
 schedule enable, start time, rain/freeze/wind skip, rain threshold, freeze temperature, per-schedule-zone
@@ -143,19 +143,7 @@ flow worked out from the installed heads is a reference a leak can't move.
   water tonight, run a zone from a button.
 - **Diagnostics** download with the plan, baselines and flow settings (redacted).
 
-## 4. Local control (separate research)
-
-The Gen2 controller is a Particle P1 module (soldered; Zigbee through a separate EM357 module) with no open local
-ports. It does not use Particle's cloud: it resolves `sps.spruceirrigation.com` and keeps one TCP connection to
-port 5683 on Spruce's own Particle-protocol server, with a Particle-style RSA handshake using Spruce's keys (seen
-31 Oct 2026). Redirecting DNS alone can't work: the device would reject a local server without its stored server
-key being replaced (DFU over the module's USB/SWD pads, which aren't brought out to a connector). Local control is
-out of scope for this integration until proven; tracked separately.
-
-Per-zone minutes for **basic and manual schedules** (`run_list`, verified 31 Oct 2026, see spruce-app-reference.md)
-came in 1.4.0: `set_schedule_minutes`, and `zone_minutes` on each schedule's Run button.
-
-## 5. Order of work
+## 4. Order of work
 
 | Release | Scope |
 |---|---|
@@ -167,10 +155,10 @@ came in 1.4.0: `set_schedule_minutes`, and `zone_minutes` on each schedule's Run
 | 1.0 ✅ | Instant updates and live flow (stream), Logbook / event entities, blueprints, cost, diagnostics; quality pass for HACS default / core |
 | 1.4 ✅ | Basic / manual schedule minutes per zone and weekday (`run_list`): `set_schedule_minutes`, `zone_minutes` attribute |
 
-Each release: tests against the fake account for every new write (request body as in §6), then a live check
+Each release: tests against the fake account for every new write (request body as in §5), then a live check
 against a real controller with the change reverted, as done for the write tests.
 
-## 6. Request shapes (from the write tests)
+## 5. Request shapes (from the write tests)
 
 All saves go to `POST app/api/settings` with `settings` = JSON of records
 `{"<name>[,<zone>]": {"name", "value", "device_id", "zone", "schedule_id", "settings_key_type", "settings_key"}}`:
