@@ -119,8 +119,13 @@ class SpruceRuntime:
             target = schedule["zones"].setdefault(zone, {}) if zone is not None else schedule
             target.update(local)
             self.history.async_update_listeners()
-        await self.history.async_request_refresh()
+        self.refresh_history()
 
+    def refresh_history(self) -> None:
+        """Read everything from Spruce again in the background: a full read takes a while (a year of runs, the
+        activity log), and a change is already shown, so a service call doesn't wait for it."""
+        self.history.entry.async_create_background_task(
+            self.history.hass, self.history.async_request_refresh(), "spruce history refresh")
 
     async def async_save(self, what: str, action, local=None, sync: bool = False) -> None:
         """Save something in Spruce (`action`: an awaitable), then show it straight away (`local`: a callable that
@@ -134,7 +139,7 @@ class SpruceRuntime:
         if local:
             local(self.history.data)
             self.history.async_update_listeners()
-        await self.history.async_request_refresh()
+        self.refresh_history()
 
     async def async_set_schedule_zones(self, schedule_id: int, zones: list[int], values: dict[str, str],
                                        local: dict) -> None:
@@ -506,7 +511,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         rt.optimistic(None, {"on": False} if call.service == SERVICE_STOP else None)
         if call.service in (SERVICE_HIBERNATE, SERVICE_PAUSE_SCHEDULES, SERVICE_RUN_SCHEDULE, SERVICE_STOP_SCHEDULE,
                             SERVICE_RUN_BASELINE, SERVICE_CREATE_SCHEDULE, SERVICE_DELETE_SCHEDULE):
-            await rt.history.async_request_refresh()
+            rt.refresh_history()
 
     for name, schema in SCHEMAS.items():
         hass.services.async_register(DOMAIN, name, handle, schema=schema)

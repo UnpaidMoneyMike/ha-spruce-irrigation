@@ -154,6 +154,7 @@ flow worked out from the installed heads is a reference a leak can't move.
 | 0.10 ✅ | Climate adjust; weather entity (the `chart_data` soil-water points and `sensor_data` history are left for later: their meaning isn't documented and the moisture sensors are mostly silent) |
 | 1.0 ✅ | Instant updates and live flow (stream), Logbook / event entities, blueprints, cost, diagnostics; quality pass for HACS default / core |
 | 1.4 ✅ | Basic / manual schedule minutes per zone and weekday (`run_list`): `set_schedule_minutes`, `zone_minutes` attribute |
+| 1.4.1 ✅ | Changes return as soon as Spruce has saved them (and the controller has its new run list); the full re-read runs in the background |
 
 Each release: tests against the fake account for every new write (request body as in §5), then a live check
 against a real controller with the change reverted, as done for the write tests.
