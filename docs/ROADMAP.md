@@ -145,9 +145,16 @@ flow worked out from the installed heads is a reference a leak can't move.
 
 ## 4. Local control (separate research)
 
-The Gen2 controller is a Particle Photon module that talks only to Particle's cloud (encrypted; no local
-ports). Local control means pointing the module at a self-hosted Particle-compatible server or new firmware —
+The Gen2 controller is a Particle P1 module (soldered; Zigbee through a separate EM357 module) with no open local
+ports. It does not use Particle's cloud: it resolves `sps.spruceirrigation.com` and keeps one TCP connection to
+port 5683 on Spruce's own Particle-protocol server, with a Particle-style RSA handshake using Spruce's keys (seen
+31 Oct 2026). Redirecting DNS alone can't work: the device would reject a local server without its stored server
+key being replaced (DFU over the module's USB/SWD pads, which aren't brought out to a connector). Local control is
 out of scope for this integration until proven; tracked separately.
+
+Still to add from the 31 Oct 2026 findings: per-zone minutes for **basic and manual schedules** (`run_list`, see
+spruce-app-reference.md). Today the integration can create those schedules, but `set_schedule_zone` only edits
+connected schedules' `zone.<n>` settings.
 
 ## 5. Order of work
 

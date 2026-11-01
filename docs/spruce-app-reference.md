@@ -146,13 +146,33 @@ Keys only; values are the account's own.
 `start_time_rel` (±180 min), `days_select` (`days` / `even_odd` / `everyx`), `days_var`, `days_mode`,
 `rain_delay_enabled`, `rain_delay_inches`, `freeze_delay_enabled`, `wind_delay_enabled`,
 `time_restr1_enabled` / `_start` / `_end` (watering window), `use_independent_et`, `climate_array`,
-`run_list` (basic: per weekday), `next_date`, `next_minutes`, `pred_start_time`, `pred_processed`,
+`run_list` (basic / manual: per weekday, see below), `next_date`, `next_minutes`, `pred_start_time`, `pred_processed`,
 **`prediction`** and **`history`** (per day, below), and **`zone.<n>`** per zone in the schedule:
 `zonesched_enabled`, `duration_scaling` (%), `schedule_mode` (`et_days` / `et_duration` / `sensor` / `fixed`),
 `cycles` (1–4 / auto), `base_duration`, `base_duration_min`, `base_duration_max`, `weekly_safeguard_min`,
 `weekly_safeguard_max` (days of watering per week), `moisture_setpoint`, `sensor`, `sensor_enabled`,
 `sensor_mode`, `learning_enabled`, `climate_adjust_enabled`, `rain_delay_enabled`, `freeze_delay_enabled`,
 `wind_delay_enabled`, `guideline`.
+
+**Basic and manual schedules: `run_list`** (verified 31 Oct 2026 from the web app's bundle — `RunlistEditor` and
+`runlist-helper.js` — and by creating, reading back and enabling a test schedule on the live account):
+- Stored per weekday under the schedule, `run_list` = `{ "1": "...", ..., "7": "..." }`. **Day 1 = Sunday … 7 = Saturday**
+  (the editor's columns are Sun…Sat; the `days_var` flags are Sunday first too). Weekdays with no entry do not run;
+  a manual schedule only has day `1`.
+- Each value is **one `minutes:cycles,` item per zone, zones 1…16 in order, with a trailing comma**, e.g.
+  `0:1,0:1,0:1,0:1,0:1,0:1,0:1,0:1,0:1,0:1,0:1,3:1,0:1,0:1,0:1,0:1,` = zone 12 for 3 minutes, one cycle. Minutes are whole
+  numbers; cycles ≥ 1. (The cloud echoes the day's computed list back in `runlist` with `0:0` for unused zones.)
+- Saved with the normal settings call (`POST app/api/settings`, `settings` = JSON of records), **one record per weekday**:
+  `{"name": "run_list", "value": "<string above>", "device_id": <controller>, "zone": <day 1-7>, "schedule_id": <id>,
+  "settings_key_type": "schedule", "settings_key": "schedule.<id>"}` (the app's key is `run_list,<day>`; `zone` carries the day).
+- Other basic-schedule settings are ordinary schedule records: `schedule_name`, `start_time` (controller-local `HH:MM`),
+  `start_time_mode` (`set`), `rain_delay_enabled` / `freeze_delay_enabled` / `wind_delay_enabled` (`"0"`/`"1"`, schedule-level
+  for basic schedules), `climate_adjust_enabled`, `sched_enabled`. A basic schedule needs at least one zone with a duration
+  ("Please enter a duration for at least one zone").
+- To make the controller run it: save `sched_enabled=1`, `GET schedule/runlist` (`deviceid`, `scheduleid`, `run=false`) and send
+  `spruceset=schedule,<id>,<start_time>`; the controller answers `return_value` 1. `run_length` / `status_message` there tell
+  you what Spruce expects ("Watering for 3 minutes. Schedule will finish at 4:38 PM.").
+- `POST app/api/schedule schedule_type=basic master_controller=<id>` creates the empty schedule and returns its `id`.
 
 **Schedule day (`prediction` / `history`)**: `local_date`, `epoch_time` (start), `start_time`, `end_time`,
 `is_scheduled`, `total_duration_seconds`, `total_run_seconds`, `total_delay_seconds`, `message`, `icon`,
