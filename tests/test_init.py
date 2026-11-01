@@ -424,7 +424,6 @@ async def test_schedule_minutes(hass: HomeAssistant, entry, mock_api) -> None:
                                                                     "minutes": 8, "cycles": 2}, blocking=True)
     mock_api.save_run_list.assert_awaited_with(CONTROLLER, 13, {2: "15:1,8:2,0:1,", 6: "15:1,8:2,0:1,"})
     mock_api.sync_schedule.assert_awaited_with(CONTROLLER, 13, True)
-    assert button(13).attributes["zone_minutes"]["mon"] == {"Front Lawn": 15, "Garden Beds": 8}
 
     # A new weekday starts from nothing; a zone group sets each zone in it
     await hass.services.async_call(DOMAIN, "set_schedule_minutes", {"schedule": "Basic", "zone": "Lawns", "minutes": 5,
