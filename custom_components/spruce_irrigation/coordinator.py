@@ -289,6 +289,8 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
                                    "weekly_max": _float(v.get("weekly_safeguard_max")),
                                    "climate_adjust": str(v.get("climate_adjust_enabled", "0")) == "1"}
                           for z, v in _literal(s.get("zone")).items() if str(z).isdigit() and isinstance(v, dict)},
+                # basic / manual schedules: fixed minutes per zone per weekday (connected ones are planned by Spruce)
+                "run_list": _run_list(s.get("run_list")),
                 "next_date": s.get("next_date"), "next_minutes": _float(s.get("next_minutes")),
                 "days": _watering_days(s),
                 # Spruce's plan: its last few days and its forecast for the next ~18 (connected schedules re-plan daily)
@@ -538,6 +540,21 @@ def _literal(v: Any) -> dict:
     except (ValueError, SyntaxError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _run_list(v: Any) -> dict[int, dict[int, dict[str, int]]]:
+    """A basic / manual schedule's run list: per weekday (1 = Sunday ... 7 = Saturday; a manual schedule has only 1)
+    one `minutes:cycles,` item per zone, zones in order. Returns {day: {zone: {"minutes", "cycles"}}}."""
+    out: dict[int, dict[int, dict[str, int]]] = {}
+    for day, items in _literal(v).items():
+        if not str(day).isdigit() or not isinstance(items, str):
+            continue
+        zones = {}
+        for zone, item in enumerate(filter(None, items.split(",")), 1):
+            minutes, _, cycles = item.partition(":")
+            zones[zone] = {"minutes": _int(minutes) or 0, "cycles": max(_int(cycles) or 1, 1)}
+        out[int(day)] = zones
+    return out
 
 
 def _float(v: Any) -> float | None:

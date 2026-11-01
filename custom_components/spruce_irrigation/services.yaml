@@ -261,6 +261,41 @@ set_schedule_days:
           options:
             - "even"
             - "odd"
+set_schedule_minutes:
+  fields:
+    device_id: *device
+    schedule:
+      required: true
+      selector:
+        text:
+    zone:
+      required: true
+      selector:
+        text:
+    minutes:
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 240
+          unit_of_measurement: min
+    cycles:
+      selector:
+        number:
+          min: 1
+          max: 4
+    weekdays:
+      selector:
+        select:
+          multiple: true
+          options:
+            - "sun"
+            - "mon"
+            - "tue"
+            - "wed"
+            - "thu"
+            - "fri"
+            - "sat"
 get_schedule_day:
   fields:
     device_id: *device

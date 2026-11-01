@@ -64,7 +64,9 @@ def fake_api() -> AsyncMock:
                                     "2": {"water_duration_minutes": 8}}},
                        "average": {}}},
             "12": {"schedule_name": "Manual", "schedule_type": "manual", "sched_enabled": "1",
-                   "master_controller": CONTROLLER},
+                   "master_controller": CONTROLLER, "run_list": {"1": "10:1,5:2,0:1,"}},
+            "13": {"schedule_name": "Basic", "schedule_type": "basic", "sched_enabled": "1", "start_time": "05:00",
+                   "master_controller": CONTROLLER, "run_list": {"2": "15:1,0:1,0:1,", "6": "15:1,0:1,0:1,"}},
         },
     }
     api.zone_status.return_value = {

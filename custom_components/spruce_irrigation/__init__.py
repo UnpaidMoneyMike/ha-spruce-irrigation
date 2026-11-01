@@ -43,6 +43,7 @@ from .const import (
     SERVICE_RENAME_SCHEDULE,
     SERVICE_SET_CLIMATE_ADJUST,
     SERVICE_SET_SCHEDULE_DAYS,
+    SERVICE_SET_SCHEDULE_MINUTES,
     SERVICE_REVIEW_BASELINE,
     SERVICE_RUN_BASELINE,
     SERVICE_SCHEDULE_DAY,
@@ -147,6 +148,38 @@ class SpruceRuntime:
                 data.schedules[schedule_id]["zones"].setdefault(z, {}).update(local)
         await self.async_save(schedule["name"], self.api.save_schedule_zones(
             self.controller, schedule_id, {z: dict(values) for z in zones}), apply)
+        if schedule.get("enabled") and schedule.get("type") != "manual":
+            try:
+                await self.api.sync_schedule(self.controller, schedule_id, True)
+            except SpruceError as err:
+                raise HomeAssistantError(f"Saved, but couldn't send {schedule['name']} to the controller: {err}") from err
+
+    async def async_set_schedule_minutes(self, schedule_id: int, zones: list[int], minutes: int, cycles: int | None,
+                                         days: list[int]) -> None:
+        """Set the minutes (and cycles) of zones in a basic / manual schedule on the given weekdays (1 = Sunday), keeping
+        the other zones and days, then sync it to the controller as the app does."""
+        schedule = self.history.data.schedules[schedule_id]
+        run_list = schedule.get("run_list") or {}
+        width = max([self.history.data.num_zones, *zones, *(max(d, default=0) for d in run_list.values())])
+        changed = {}
+        for day in days:
+            current = run_list.get(day, {})
+            row = {z: dict(current.get(z) or {"minutes": 0, "cycles": 1}) for z in range(1, width + 1)}
+            for z in zones:
+                row[z]["minutes"] = minutes
+                if cycles:
+                    row[z]["cycles"] = cycles
+            changed[day] = row
+        merged = {**run_list, **changed}
+        if schedule.get("type") == "basic" and not any(v["minutes"] for row in merged.values() for v in row.values()):
+            raise ServiceValidationError(f"{schedule['name']} needs at least one zone with minutes (Spruce won't save "
+                                         "a basic schedule without one)")
+
+        def apply(data) -> None:
+            data.schedules[schedule_id]["run_list"] = merged
+        await self.async_save(schedule["name"], self.api.save_run_list(self.controller, schedule_id, {
+            day: "".join(f"{v['minutes']}:{v['cycles']}," for _, v in sorted(row.items())) for day, row in changed.items()}),
+            apply)
         if schedule.get("enabled") and schedule.get("type") != "manual":
             try:
                 await self.api.sync_schedule(self.controller, schedule_id, True)
@@ -323,6 +356,11 @@ SCHEMAS = {
         vol.Optional("weekly_max"): vol.All(vol.Coerce(float), vol.Range(min=0, max=7)),
         vol.Optional("climate_adjust"): cv.boolean,
         vol.Optional("moisture_threshold"): vol.All(vol.Coerce(int), vol.Range(min=1, max=59))}),
+    SERVICE_SET_SCHEDULE_MINUTES: vol.Schema({
+        DEVICE: cv.string, vol.Required("schedule"): cv.string, vol.Required("zone"): cv.string,
+        vol.Required("minutes"): vol.All(vol.Coerce(int), vol.Range(min=0, max=240)),
+        vol.Optional("cycles"): vol.All(vol.Coerce(int), vol.Range(min=1, max=4)),
+        vol.Optional("weekdays"): vol.All(cv.ensure_list, [vol.In(WEEKDAY_KEYS)])}),
     SERVICE_SET_CLIMATE_ADJUST: vol.Schema({
         DEVICE: cv.string,
         vol.Exclusive("months", "climate"): vol.All(cv.ensure_list, [vol.All(vol.Coerce(int), vol.Range(min=0, max=200))],
@@ -378,6 +416,29 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 if not values:
                     raise ServiceValidationError(f"Give at least one of {', '.join(ZONE_FIELDS)}")
                 await rt.async_set_schedule_zones(sid, zones, values, local)
+                return
+            elif call.service == SERVICE_SET_SCHEDULE_MINUTES:
+                sid = _schedule_id(rt, call.data["schedule"])
+                schedule = rt.history.data.schedules[sid]
+                if schedule.get("type") == "manual":
+                    if call.data.get("weekdays"):
+                        raise ServiceValidationError(f"{schedule['name']} is a manual schedule: it has no weekdays")
+                    days = [1]
+                elif schedule.get("type") == "basic":
+                    if call.data.get("weekdays"):
+                        days = [WEEKDAY_KEYS.index(d) + 1 for d in call.data["weekdays"]]
+                    else:   # the days it already waters
+                        days = sorted(d for d, row in (schedule.get("run_list") or {}).items()
+                                      if any(v["minutes"] for v in row.values()))
+                    if not days:
+                        raise ServiceValidationError(f"Give the weekdays {schedule['name']} should water on")
+                else:
+                    raise ServiceValidationError(f"{schedule['name']} is a connected schedule: Spruce works out its "
+                                                 "minutes. Use set_schedule_zone (watering_percent, mode, cycles) instead")
+                group = next((g["zones"] for g in rt.history.data.zone_groups.values()
+                              if g["name"].lower() == call.data["zone"].strip().lower()), None)
+                await rt.async_set_schedule_minutes(sid, list(group) if group else [_zone(rt, call.data["zone"])],
+                                                    call.data["minutes"], call.data.get("cycles"), days)
                 return
             elif call.service == SERVICE_SET_CLIMATE_ADJUST:
                 rules = list(call.data.get("months") or rt.history.data.climate_rules or [100] * 12)

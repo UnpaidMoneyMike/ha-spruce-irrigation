@@ -217,6 +217,15 @@ class SpruceApi:
                     "settings_key_type": "schedule_zone", "settings_key": f"schedule.{schedule_id}.zone.{zone}"}
         await self._save_settings(records)
 
+    async def save_run_list(self, controller: str, schedule_id: int, days: dict[int, str]) -> None:
+        """Save a basic / manual schedule's minutes, as the web app's run list editor does: one record per weekday
+        (1 = Sunday ... 7 = Saturday, carried in `zone`), each one `minutes:cycles,` item per zone in order."""
+        await self._save_settings({
+            f"run_list,{day}": {"name": "run_list", "value": value, "device_id": controller, "zone": day,
+                                "schedule_id": schedule_id, "settings_key_type": "schedule",
+                                "settings_key": f"schedule.{schedule_id}"}
+            for day, value in days.items()})
+
     async def save_zone_settings(self, controller: str, values: dict[int, dict[str, str]]) -> None:
         """Save settings of zones of the controller (incl. the flow-meter ports 101/102), as the app does."""
         records: dict[str, dict] = {}

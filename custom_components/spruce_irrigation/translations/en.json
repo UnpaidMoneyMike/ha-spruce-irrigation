@@ -803,6 +803,36 @@
         }
       }
     },
+    "set_schedule_minutes": {
+      "name": "Set schedule minutes",
+      "description": "How long a zone waters in a basic or manual schedule (connected schedules are planned by Spruce: use Set schedule zone).",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Which Spruce controller (needed only if you have several)."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "Schedule name as in the Spruce app."
+        },
+        "zone": {
+          "name": "Zone",
+          "description": "Zone number or name, or a zone group's name (sets every zone in it)."
+        },
+        "minutes": {
+          "name": "Minutes",
+          "description": "Watering minutes (0 = the zone doesn't water)."
+        },
+        "cycles": {
+          "name": "Cycles",
+          "description": "Split the minutes into this many cycles (1-4). Unchanged if left out."
+        },
+        "weekdays": {
+          "name": "Days of the week",
+          "description": "Basic schedules: the days to change (others stay as they are). Left out: the days it already waters. Not used for manual schedules."
+        }
+      }
+    },
     "get_schedule_day": {
       "name": "Get a schedule day",
       "description": "Returns a schedule's day: Spruce's plan per zone (minutes, cycles, why, water budget in mm) and, for a past day, what actually ran.",

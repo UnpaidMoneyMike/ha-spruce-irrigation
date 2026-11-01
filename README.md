@@ -23,7 +23,7 @@ Spruce controllers have no local API: like the Spruce app, this integration talk
 | **Schedules** | Per schedule (except the manual one): **enabled** switch, **start time**, **rain / freeze / wind skip** switches (in connected schedules the skips are per zone: the switch is on when every zone has it and lists the zones without it). Changes are saved in Spruce and sent to the controller, as the Spruce app does |
 | **Weather Watch** | The controller's thresholds, shared by all schedules: **rain skip threshold**, **freeze skip temperature** and **wind skip threshold**, in your chosen units |
 | **Controller settings** | **Maximum manual run time**, **pump delay**, **allow concurrent zones**; flow meter: **upper / lower flow deviation limits**, **stop on high flow**, **pump protect**, **sustained** and **burst leak detection** |
-| **Schedule editing** | Per connected schedule: **start mode** (set time, or relative to sunrise / sunset) and **offset**, **watering days** (every day … once a week, even / odd days; days of the week with `set_schedule_days`), **watering window** with start and end. Services to **create**, **rename** and **delete** schedules, and per zone in a schedule: mode (weather balance – vary days / vary time, sensor, fixed), cycles, minimum / maximum days per week, climate adjust (`set_schedule_zone`) |
+| **Schedule editing** | Per connected schedule: **start mode** (set time, or relative to sunrise / sunset) and **offset**, **watering days** (every day … once a week, even / odd days; days of the week with `set_schedule_days`), **watering window** with start and end. **Basic and manual schedules**: minutes and cycles per zone (per weekday for basic ones) with `set_schedule_minutes`; the schedule's Run button shows them (`zone_minutes`). Services to **create**, **rename** and **delete** schedules, and per zone in a connected schedule: mode (weather balance – vary days / vary time, sensor, fixed), cycles, minimum / maximum days per week, climate adjust (`set_schedule_zone`) |
 | **Watering plan** | A **calendar** with Spruce's plan for each enabled schedule, about 18 days ahead plus the last few days: each watering from start to finish (with minutes per zone), and days skipped for rain, freeze, wind or hibernation as all-day notes. **Next watering** (start time, schedule, minutes, finish, minutes per zone) and **Watering today** (watering, skipping for rain / freeze / wind, not needed, nothing planned) sensors; each schedule's **watering days** (every day, every N days, even/odd days, weekdays) |
 | **Zone plan** | Each zone's **next watering** with minutes, cycles, Spruce's reason, the projection for the coming week (days and average minutes) and its **water budget** in mm (soil water, needed, scheduled, allowed depletion). `get_schedule_day` returns a day's full plan and, for past days, what actually ran; `set_schedule_zone` also sets a sensor zone's **moisture threshold** |
 | **Live status** (every minute) | Status (idle, watering, paused, pump delay, cycle and soak, hibernating, offline), active zone, watering ends, watering, online, last seen |
@@ -71,7 +71,9 @@ strategy:
 `create_schedule`, `rename_schedule`, `delete_schedule`, `set_schedule_days`,
 `set_schedule_zone` (a zone's watering %, whether it is included, its rain / freeze / wind skips, mode, cycles,
 weekly limits and climate adjust, in a schedule;
-a zone in a zone group changes with its group, or give the group's name).
+a zone in a zone group changes with its group, or give the group's name),
+`set_schedule_minutes` (a zone's minutes and cycles in a basic or manual schedule, on chosen weekdays; a zone group's
+name sets each zone in it).
 
 ## Install
 

@@ -9,6 +9,7 @@ import pytest
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.data_entry_flow import FlowResultType
@@ -409,6 +410,38 @@ async def test_schedule_editing(hass: HomeAssistant, entry, mock_api) -> None:
     await hass.services.async_call(DOMAIN, "rename_schedule", {"schedule": "Morning", "name": "Dawn"}, blocking=True)
     mock_api.save_schedule_settings.assert_awaited_with(CONTROLLER, 11, {"schedule_name": "Dawn"}, None)
     await hass.async_block_till_done(wait_background_tasks=True)   # a new name reloads the integration
+
+
+async def test_schedule_minutes(hass: HomeAssistant, entry, mock_api) -> None:
+    reg = er.async_get(hass)
+    button = lambda sid: hass.states.get(reg.async_get_entity_id("button", DOMAIN, f"{CONTROLLER}_schedule_{sid}_run"))  # noqa: E731
+    assert button(13).attributes["zone_minutes"] == {"mon": {"Front Lawn": 15}, "fri": {"Front Lawn": 15}}
+    assert button(12).attributes["zone_minutes"] == {"Front Lawn": 10, "Garden Beds": 5}
+    assert "zone_minutes" not in button(11).attributes
+
+    # Basic: the days it already waters, other zones kept; then the controller gets the new run list
+    await hass.services.async_call(DOMAIN, "set_schedule_minutes", {"schedule": "Basic", "zone": "Garden Beds",
+                                                                    "minutes": 8, "cycles": 2}, blocking=True)
+    mock_api.save_run_list.assert_awaited_with(CONTROLLER, 13, {2: "15:1,8:2,0:1,", 6: "15:1,8:2,0:1,"})
+    mock_api.sync_schedule.assert_awaited_with(CONTROLLER, 13, True)
+    assert button(13).attributes["zone_minutes"]["mon"] == {"Front Lawn": 15, "Garden Beds": 8}
+
+    # A new weekday starts from nothing; a zone group sets each zone in it
+    await hass.services.async_call(DOMAIN, "set_schedule_minutes", {"schedule": "Basic", "zone": "Lawns", "minutes": 5,
+                                                                    "weekdays": ["sun"]}, blocking=True)
+    mock_api.save_run_list.assert_awaited_with(CONTROLLER, 13, {1: "5:1,5:1,0:1,"})
+
+    # Manual: one list, no weekdays, not sent to the controller
+    mock_api.sync_schedule.reset_mock()
+    await hass.services.async_call(DOMAIN, "set_schedule_minutes", {"schedule": "Manual", "zone": "1", "minutes": 0},
+                                   blocking=True)
+    mock_api.save_run_list.assert_awaited_with(CONTROLLER, 12, {1: "0:1,5:2,0:1,"})
+    mock_api.sync_schedule.assert_not_awaited()
+
+    for data in ({"schedule": "Morning", "zone": "1", "minutes": 5},                       # connected: Spruce plans it
+                 {"schedule": "Manual", "zone": "1", "minutes": 5, "weekdays": ["mon"]}):
+        with pytest.raises(ServiceValidationError):
+            await hass.services.async_call(DOMAIN, "set_schedule_minutes", data, blocking=True)
 
 
 async def test_zone_plan_and_schedule_day(hass: HomeAssistant, entry, mock_api) -> None:

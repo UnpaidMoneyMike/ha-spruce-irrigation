@@ -152,9 +152,8 @@ port 5683 on Spruce's own Particle-protocol server, with a Particle-style RSA ha
 key being replaced (DFU over the module's USB/SWD pads, which aren't brought out to a connector). Local control is
 out of scope for this integration until proven; tracked separately.
 
-Still to add from the 31 Oct 2026 findings: per-zone minutes for **basic and manual schedules** (`run_list`, see
-spruce-app-reference.md). Today the integration can create those schedules, but `set_schedule_zone` only edits
-connected schedules' `zone.<n>` settings.
+Per-zone minutes for **basic and manual schedules** (`run_list`, verified 31 Oct 2026, see spruce-app-reference.md)
+came in 1.4.0: `set_schedule_minutes`, and `zone_minutes` on each schedule's Run button.
 
 ## 5. Order of work
 
@@ -162,10 +161,11 @@ connected schedules' `zone.<n>` settings.
 |---|---|
 | 0.6 ✅ | §1 fixes; unit system and water price options; controller settings (max manual time, pump delay, concurrent zones, zone enabled); wind threshold; flow meter switches and limits; outlet switches + repeater health |
 | 0.7 ✅ | Flow baseline button + baseline sensors + baseline history; head library, zone specs, design flow and baseline review; Repairs for calibration / no-flow zones / stale baseline / silent repeaters (the live flow sensor moved to 1.0: it needs the live stream) |
-| 0.8 ✅ | Schedules: create / delete, start mode + offset, days, watering window, per-zone mode / cycles / weekly limits; manual and basic schedule editing services |
+| 0.8 ✅ | Schedules: create / delete, start mode + offset, days, watering window, per-zone mode / cycles / weekly limits; creating manual and basic schedules (their per-zone minutes came in 1.4) |
 | 0.9 ✅ | Plan detail: per-zone reasons and water budget; projections; past day detail; sensor settings (threshold, polling, learn mode) |
 | 0.10 ✅ | Climate adjust; weather entity (the `chart_data` soil-water points and `sensor_data` history are left for later: their meaning isn't documented and the moisture sensors are mostly silent) |
 | 1.0 ✅ | Instant updates and live flow (stream), Logbook / event entities, blueprints, cost, diagnostics; quality pass for HACS default / core |
+| 1.4 ✅ | Basic / manual schedule minutes per zone and weekday (`run_list`): `set_schedule_minutes`, `zone_minutes` attribute |
 
 Each release: tests against the fake account for every new write (request body as in §6), then a live check
 against a real controller with the change reverted, as done for the write tests.
@@ -181,6 +181,7 @@ All saves go to `POST app/api/settings` with `settings` = JSON of records
 | Zone (incl. flow ports 101/102) | controller | n | 0 | `zone` | `controller.<id>.zone.<n>` |
 | Schedule | controller | 99 | id | `schedule` | `schedule.<id>` |
 | Zone in a schedule | controller | n | id | `schedule_zone` | `schedule.<id>.zone.<n>` |
+| Run list day (basic / manual) | controller | day 1–7 (Sun–Sat) | id | `schedule` | `schedule.<id>` (record key `run_list,<day>`) |
 | Sensor | sensor | 99 | 0 | `sensor` (+ `"sensor": <id>`) | `sensor.<id>` |
 | Account | `global` | 99 | 0 | `global` | `global` |
 

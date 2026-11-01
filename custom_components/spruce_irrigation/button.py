@@ -15,6 +15,8 @@ from homeassistant.util import dt as dt_util
 from .api import SpruceError
 from .entity import SpruceEntity
 
+WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]   # Spruce's run list days 1-7
+
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     rt = entry.runtime_data
@@ -103,6 +105,21 @@ class SpruceRunSchedule(_Button):
     @property
     def available(self) -> bool:
         return super().available and self.schedule_id in self.history.schedules
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        """A basic / manual schedule's fixed minutes per zone (per weekday for a basic one)."""
+        schedule = self.history.schedules.get(self.schedule_id) or {}
+        if schedule.get("type") not in ("basic", "manual"):
+            return None
+        zones = self.history.zones
+
+        def named(row: dict) -> dict:
+            return {(zones[z].name if z in zones else f"Zone {z}"): v["minutes"] for z, v in sorted(row.items()) if v["minutes"]}
+        run_list = schedule.get("run_list") or {}
+        if schedule["type"] == "manual":
+            return {"zone_minutes": named(run_list.get(1, {}))}
+        return {"zone_minutes": {WEEKDAYS[d - 1]: named(row) for d, row in sorted(run_list.items()) if named(row)}}
 
     async def async_press(self) -> None:
         await self._do(self.rt.api.schedule_on(self.controller, self.schedule_id))
