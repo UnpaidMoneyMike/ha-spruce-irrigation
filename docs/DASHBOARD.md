@@ -145,8 +145,10 @@ Data: rain, temperature, water per zone (have); cost (new); ET demand (new, `cha
 │ Zone   base   last   status          │  ← table: no-flow zones in red
 │ ⚠ Calibration offset outside 0–2   │
 ├─────────────────────────────────────┤
-│ Sensor mesh                          │
-│ Sensors   4 live · 1 silent          │  ← each: moisture, battery, signal, last seen
+│ Zigbee mesh   up · channel 15        │  ← mesh_var; Repairs notice when it is down
+│ Controller · channel 15 · PAN 7F39   │  ← devices ranked by link strength (1.5):
+│ ├─ ▰▰▰ Front Lawn   -57 dBm sensor   │    Spruce gives each device's signal as the
+│ └─ ▰▰▱ Rear Kennel  -79 dBm sensor   │    controller sees it, not who relays for whom
 │ Repeaters 1 of 2 online               │  ← outlets / extenders with last seen
 ├─────────────────────────────────────┤
 │ Activity log                         │  ← logbook card of spruce events

@@ -43,6 +43,9 @@ FLOW_PORTS = (101, 102)             # flow-meter ports appear as zones 101 and 1
 OUTLET_SILENT = timedelta(days=7)
 BASELINE_STALE = timedelta(days=365)  # a flow baseline older than this is reported   # a Zigbee outlet / repeater not heard from for this long is reported
 
+SIGNAL_STRONG = -65                  # dBm: a Zigbee link at or above this is strong, at or above SIGNAL_FAIR fair, else weak
+SIGNAL_FAIR = -80
+
 EVENT_SPRUCE = f"{DOMAIN}_event"    # fired for each new activity-log entry
 
 SERVICE_RUN_ZONE = "run_zone"

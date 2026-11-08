@@ -257,6 +257,35 @@ async def test_outlet_and_pause(hass: HomeAssistant, entry, mock_api) -> None:
     assert hass.states.get(hibernate).attributes["until"] == (dt_util.now().date() + timedelta(days=1)).isoformat()
 
 
+async def test_mesh(hass: HomeAssistant, entry, mock_api) -> None:
+    status = _sensor(hass, "mesh_status")
+    assert status.state == "up"
+    assert status.attributes["channel"] == 15 and status.attributes["frequency_mhz"] == 2425
+    assert status.attributes["pan_id"] == "7F39" and status.attributes["transmit_power_dbm"] == -2
+    assert status.attributes["overlaps_wifi"] is False            # Wi-Fi channel 6 (2437 MHz) is 12 MHz away
+
+    devices = _sensor(hass, "mesh_devices")
+    assert devices.state == "1"                                    # the sensor is live, the repeater silent for 30 days
+    assert devices.attributes["total"] == 2 and devices.attributes["silent"] == ["Porch plug"]
+    assert devices.attributes["routing_known"] is False
+    sensor, repeater = devices.attributes["nodes"]
+    assert (sensor["kind"], sensor["signal"], sensor["link"]) == ("sensor", -60, "strong")
+    assert (repeater["kind"], repeater["signal"], repeater["link"], repeater["silent"]) == ("repeater", -70, "silent", True)
+    assert devices.attributes["weakest"] == "Front Lawn" and devices.attributes["weakest_dbm"] == -60
+
+    issues = ir.async_get(hass)
+    assert issues.async_get_issue(DOMAIN, f"mesh_down_{CONTROLLER}") is None
+    mock_api.mesh.return_value = {**mock_api.mesh.return_value, "status": "Offline"}
+    await entry.runtime_data.history.async_refresh()
+    await hass.async_block_till_done()
+    assert _sensor(hass, "mesh_status").state == "offline"
+    assert issues.async_get_issue(DOMAIN, f"mesh_down_{CONTROLLER}")
+    mock_api.mesh.return_value = {}                                # the mesh call failing must not raise the issue
+    await entry.runtime_data.history.async_refresh()
+    await hass.async_block_till_done()
+    assert issues.async_get_issue(DOMAIN, f"mesh_down_{CONTROLLER}") is None
+
+
 async def test_us_units_and_cost(hass: HomeAssistant, mock_api) -> None:
     from custom_components.spruce_irrigation.const import CONF_PRICE, CONF_UNITS
 

@@ -75,7 +75,7 @@ comma-separated strings in `result`.
 | GET | `run_status` | `pause,pump_delay,cycle_soak,…` seconds left | Have |
 | GET | `zone_status` | Live zone state from the controller | No (cloud copy used) |
 | GET | `network_var` | Wi-Fi: SSID, channel, power, IP, MAC | Have (signal, IP) |
-| GET | `mesh_var` | Zigbee mesh: status, mode, channel, PAN, power, firmware | No |
+| GET | `mesh_var` | Zigbee mesh as one comma line, e.g. `1002,10,2000,NCP,0,C,15,7F39,-2,UP,`: [1] firmware, [5] mode (`C` coordinator), [6] channel (11–26, 2405 + 5 × (n − 11) MHz), [7] PAN id (hex), [8] transmit power (dBm), [9] status (`UP`; `0` shows as Offline in the app). Nothing per device: no parent, neighbour, route or link-quality table, in the API or anywhere in the web app (checked 8 Nov 2026) | Have (1.5) |
 | GET | `wifi_var` | Wi-Fi networks stored on the controller | No |
 | POST | `initialize`, `verifyAPI` | Set-up wizard checks | No (setup only) |
 

@@ -33,7 +33,10 @@ from .const import (
     CONF_REVIEW_TOLERANCE,
     DEFAULT_REVIEW_TOLERANCE,
     LITRES_PER_GALLON,
+    OUTLET_SILENT,
     SENSOR_STALE,
+    SIGNAL_FAIR,
+    SIGNAL_STRONG,
 )
 from .heads import design
 from .entity import SpruceEntity, SpruceMoistureEntity, SpruceZoneEntity, outlet_device_info, planned_days
@@ -100,6 +103,74 @@ def _next_attrs(rt) -> dict[str, Any]:
             "zones": {zones[z].name if z in zones else f"Zone {z}": m for z, m in sorted(day["zones"].items())}}
 
 
+def _link(signal: float | None, silent: bool) -> str:
+    if silent:
+        return "silent"
+    if signal is None:
+        return "unknown"
+    return "strong" if signal >= SIGNAL_STRONG else "fair" if signal >= SIGNAL_FAIR else "weak"
+
+
+def _mesh_nodes(rt) -> list[dict]:
+    """Every Zigbee device the controller hears (moisture sensors and repeater outlets), strongest link first.
+
+    Spruce gives one signal reading per device, as the controller sees it, and nothing about which device relays
+    for which, so this is link quality and not a routing tree."""
+    now = dt_util.utcnow()
+    nodes = []
+    for sid, s in rt.status.data.sensors.items():
+        seen = s.get("latest_at")
+        silent = seen is None or now - seen > SENSOR_STALE
+        nodes.append({"id": sid, "name": s.get("name") or f"Sensor {sid[-4:]}", "kind": "sensor", "signal": s.get("signal"),
+                      "battery_v": s.get("battery_v"), "last_seen": seen.isoformat() if seen else None, "silent": silent,
+                      "link": _link(s.get("signal"), silent)})
+    for did, o in rt.history.data.outlets.items():
+        seen = o.get("last_seen")
+        silent = seen is None or now - seen > OUTLET_SILENT
+        nodes.append({"id": did, "name": o.get("name") or f"Repeater {did[-4:]}", "kind": "repeater", "signal": o.get("signal"),
+                      "battery_v": None, "last_seen": seen.isoformat() if seen else None, "silent": silent,
+                      "link": _link(o.get("signal"), silent)})
+    nodes.sort(key=lambda n: (n["silent"], n["kind"] != "repeater", -(n["signal"] if n["signal"] is not None else -999)))
+    return nodes
+
+
+def _mesh_devices(rt) -> int:
+    return sum(1 for n in _mesh_nodes(rt) if not n["silent"])
+
+
+def _mesh_devices_attrs(rt) -> dict[str, Any]:
+    nodes = _mesh_nodes(rt)
+    live = [n for n in nodes if not n["silent"] and n["signal"] is not None]
+    weakest = min(live, key=lambda n: n["signal"], default=None)
+    return {"total": len(nodes), "silent": [n["name"] for n in nodes if n["silent"]],
+            "weakest": weakest["name"] if weakest else None, "weakest_dbm": weakest["signal"] if weakest else None,
+            "routing_known": False, "nodes": nodes}
+
+
+def _mesh_status(rt) -> str | None:
+    status = rt.history.data.mesh.get("status")
+    return status.lower() if status else None
+
+
+def _mesh_attrs(rt) -> dict[str, Any]:
+    mesh, network = rt.history.data.mesh, rt.history.data.network
+    channel = mesh.get("channel")
+    mhz = 2405 + 5 * (channel - 11) if channel is not None else None
+    wifi = _int(network.get("channel"))
+    wifi_mhz = 2407 + 5 * wifi if wifi else None
+    return {"channel": channel, "frequency_mhz": mhz, "pan_id": mesh.get("pan"), "mode": mesh.get("mode"),
+            "transmit_power_dbm": mesh.get("power"), "firmware": mesh.get("firmware"), "wifi_channel": wifi,
+            # a 20 MHz Wi-Fi channel reaches 10 MHz either side of its centre; a Zigbee channel is 2 MHz wide
+            "overlaps_wifi": abs(mhz - wifi_mhz) < 11 if mhz and wifi_mhz else None}
+
+
+def _int(value: Any) -> int | None:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _today(rt) -> list[tuple[dict, dict]]:
     today = dt_util.now().date()
     return [(s, d) for s, d in planned_days(rt) if d["day"] == today]
@@ -139,6 +210,11 @@ CONTROLLER_SENSORS = (
                             entity_registry_enabled_default=False, value_fn=lambda rt: rt.history.data.network.get("signal")),
     SpruceSensorDescription(key="last_seen", translation_key="last_seen", device_class=SensorDeviceClass.TIMESTAMP,
                             entity_category=EntityCategory.DIAGNOSTIC, entity_registry_enabled_default=False, value_fn=lambda rt: rt.status.data.last_seen, status=True),
+    SpruceSensorDescription(key="mesh_status", translation_key="mesh_status", icon="mdi:access-point-network",
+                            entity_category=EntityCategory.DIAGNOSTIC, value_fn=_mesh_status, attrs_fn=_mesh_attrs),
+    SpruceSensorDescription(key="mesh_devices", translation_key="mesh_devices", icon="mdi:lan",
+                            state_class=SensorStateClass.MEASUREMENT, value_fn=_mesh_devices, attrs_fn=_mesh_devices_attrs,
+                            status=True),
 )
 
 ZONE_SENSORS = (
@@ -455,6 +531,7 @@ class _UnitsMixin:
 
 class SpruceControllerSensor(_UnitsMixin, SpruceEntity, SensorEntity):
     entity_description: SpruceSensorDescription
+    _unrecorded_attributes = frozenset({"nodes"})     # the mesh device list is large and changes with every signal reading
 
     def __init__(self, entry, description: SpruceSensorDescription) -> None:
         rt = entry.runtime_data

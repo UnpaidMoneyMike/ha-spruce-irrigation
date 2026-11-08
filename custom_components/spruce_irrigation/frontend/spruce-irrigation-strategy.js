@@ -13,7 +13,7 @@ const CONTROLLER_KEYS = ["status", "active_zone", "watering_ends", "water_today"
   "flow_leak_burst", "pause_until_tomorrow", "water_cost_today", "water_cost_month", "next_watering",
   "watering_today", "plan", "run_baseline", "accept_baseline", "keep_previous_baseline", "last_baselined",
   "baseline_review", "forecast", "climate_adjust", "live_flow", "flow_rate", "activity", "water_week", "rain_week",
-  "week_plan"];
+  "week_plan", "mesh_status", "mesh_devices"];
 const SENSOR_KEYS = ["moisture", "temperature", "battery", "signal", "last_reading"];
 
 /** The integration's controllers, zones, schedules, moisture sensors and water statistics. */
@@ -157,6 +157,7 @@ function alertsCard(c, zones) {
       + `{% set ns.items = ns.items + ['warning|${zones[z].replace(/'/g, "")}: ' ~ ${words}[s] ~ (' (' ~ ('%+d' % d) ~ '%)' if d is not none and s != 'no_flow' else '')] %}{% endif %}`;
   }
   if (e.baseline_review) t += `{% if states('${e.baseline_review}') | int(0) > 0 %}{% set ns.items = ns.items + ['warning|New flow baseline: ' ~ states('${e.baseline_review}') ~ ' zone(s) need your review (Health)'] %}{% endif %}`;
+  if (e.mesh_status) t += `{% if is_state('${e.mesh_status}', 'offline') %}{% set ns.items = ns.items + ['error|Zigbee mesh is down — moisture sensors and repeaters cannot reach the controller'] %}{% endif %}`;
   const silent = Object.values(c.outlets).map((o) => o.silent).filter(Boolean);
   if (silent.length) {
     t += `{% set n = [${silent.map((s) => `'${s}'`).join(", ")}] | select('is_state', 'on') | list | count %}`
@@ -166,6 +167,23 @@ function alertsCard(c, zones) {
   t += "{% for i in ns.items %}<ha-alert alert-type=\"{{ i.split('|')[0] }}\">{{ i.split('|')[1] }}</ha-alert>{% endfor %}"
     + "{% if not ns.items %}<ha-alert alert-type=\"success\">All good: no flow problems, offline devices or reviews waiting.</ha-alert>{% endif %}";
   return md(t, { text_only: true });
+}
+
+/** The Zigbee devices the controller hears, strongest link first. Spruce reports each device's signal as the
+ * controller sees it and not which device relays for which, so this is a ranking by link quality, not a routing tree. */
+function meshCard(c) {
+  const e = c.entities;
+  if (!e.mesh_devices) return null;
+  const bars = "{'strong': '▰▰▰', 'fair': '▰▰▱', 'weak': '▰▱▱'}";
+  const t = `{% set nodes = state_attr('${e.mesh_devices}', 'nodes') or [] %}`
+    + (e.mesh_status ? `{% set ch = state_attr('${e.mesh_status}', 'channel') %}{% set pan = state_attr('${e.mesh_status}', 'pan_id') %}` : "")
+    + "```\nController" + (e.mesh_status ? "  ·  channel {{ ch }}  ·  PAN {{ pan }}" : "") + "\n"
+    + `{% for n in nodes | rejectattr('silent') | list %}{{ '└─' if loop.last else '├─' }} {{ ${bars}.get(n.link, '▱▱▱') }} `
+    + "{{ '%-26s' % n.name }} {{ '%4s' % (n.signal if n.signal is not none else '–') }} dBm  {{ n.kind }}\n{% endfor %}```\n"
+    + "{% set gone = nodes | selectattr('silent') | list %}{% if gone %}**Not reporting:** {{ gone | map(attribute='name') | join(', ') }}\n\n{% endif %}"
+    + "_Strongest link first, as the controller sees it. Spruce does not say which device relays for which, "
+    + "so a sensor on a weak link may be reaching the controller through a repeater, or may need one._";
+  return md(t);
 }
 
 /** Status and the next watering in big type, with today's plan in words. */
@@ -430,6 +448,9 @@ function healthView(c, zones) {
         tile(e.flow_stop_on_high), tile(e.flow_pump_protect), tile(e.flow_leak_sustained), tile(e.flow_leak_burst)]) : null,
       section([heading("Controller settings", "mdi:tune"), tile(e.manual_max_time), tile(e.pump_delay),
         tile(e.concurrent_zones)]),
+      e.mesh_devices ? section([heading("Zigbee mesh", "mdi:lan"),
+        tile(e.mesh_status, { name: "Mesh", state_content: ["state", "channel"] }), tile(e.mesh_devices, { name: "Devices heard" }),
+        meshCard(c)], 3) : null,
       Object.keys(c.outlets).length ? section([heading("Sensor repeaters", "mdi:access-point-network"),
         ...Object.values(c.outlets).map((o) => tile(o.silent || o.last_seen, { name: o.name,
           state_content: o.last_seen ? ["state"] : undefined, color: "red", grid_options: { columns: 6 } })),

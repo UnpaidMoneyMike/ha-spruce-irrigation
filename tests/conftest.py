@@ -82,6 +82,7 @@ def fake_api() -> AsyncMock:
     api.controller_status.return_value = {"current_state": 1, "epoch_time": epoch - 30}
     api.run_status.return_value = {"pause": 0, "pump_delay": 0, "cycle_soak": 0}
     api.network.return_value = {"channel": "6", "signal": -50, "ip": "192.0.2.10"}
+    api.mesh.return_value = {"firmware": "10", "mode": "C", "channel": 15, "pan": "7F39", "power": -2, "status": "UP"}
     api.water_summary.return_value = [
         {"ymd": today.isoformat(), "zone": 1, "schedule_id": 0, "schedule": "Manual", "schedule_type": "Manual",
          "minutes": 10, "gallons": 80},

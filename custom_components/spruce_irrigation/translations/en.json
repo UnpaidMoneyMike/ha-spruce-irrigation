@@ -149,6 +149,10 @@
       "title": "Flow baseline is over a year old",
       "description": "Spruce's flow baseline is from {date}. Heads, pressure and plants change; run a new baseline (button \"Run flow baseline\") so flow alerts compare with today's system."
     },
+    "mesh_down": {
+      "title": "Zigbee mesh is down",
+      "description": "The controller reports its Zigbee mesh as {status}. Moisture sensors and repeaters cannot reach it until it is back up. Unplug the controller for ten seconds; if it stays down after that, contact Spruce support."
+    },
     "repeaters_silent": {
       "title": "Zigbee repeaters not reporting",
       "description": "{outlets} have not reported for over a week. They relay the moisture sensors' signal, so sensors further away go quiet too. Check they are plugged in and switched on; a reset repeater can be paired again with \"Pair moisture sensor\"."
@@ -349,6 +353,12 @@
       },
       "outlet_last_seen": {
         "name": "Last report"
+      },
+      "mesh_status": {
+        "name": "Zigbee mesh"
+      },
+      "mesh_devices": {
+        "name": "Zigbee devices heard"
       },
       "last_baselined": {
         "name": "Last flow baseline"

@@ -125,6 +125,17 @@ class SpruceApi:
         f = str(data.get("result", "")).split(",") + [""] * 6
         return {"channel": f[2], "signal": _int(f[3]), "ip": f[4]}
 
+    async def mesh(self, controller: str) -> dict[str, Any]:
+        """The Zigbee mesh the controller coordinates: status, mode, channel, PAN, transmit power and firmware.
+
+        Spruce answers one line for the whole mesh ("1002,10,2000,NCP,0,C,15,7F39,-2,UP,"); it says nothing about
+        individual devices or which of them relays for which."""
+        data = await self.device("GET", "mesh_var", controller)
+        f = str(data.get("result", "")).split(",") + [""] * 10
+        status = f[9].strip()
+        return {"firmware": f[1] or None, "mode": f[5] or None, "channel": _int(f[6]), "pan": f[7] or None,
+                "power": _int(f[8]), "status": "Offline" if status == "0" else status or None}
+
     async def forecast(self, controller: str) -> dict:
         return await self._request("GET", "app/api/weather_forecast", {"controller_id": controller}) or {}
 

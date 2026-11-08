@@ -95,6 +95,7 @@ class HistoryData:
     usual_lpm: dict[int, float] = field(default_factory=dict)          # zone -> median measured flow
     flow_fault: dict[int, bool] = field(default_factory=dict)          # zone's last run measured ~no flow
     network: dict[str, Any] = field(default_factory=dict)
+    mesh: dict[str, Any] = field(default_factory=dict)                 # Zigbee mesh: status, channel, PAN, power, firmware
     baseline: dict[int, dict] = field(default_factory=dict)            # Spruce's current baseline: zone -> {id, lpm, at}
     below_range: set[int] = field(default_factory=set)                 # zones whose flow is under the meter's minimum
     forecast: dict[str, list] = field(default_factory=dict)            # WeatherKit: {daily: [...], hourly: [...]}
@@ -182,6 +183,10 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
             except SpruceError:
                 network = {}
             try:
+                mesh = await self.api.mesh(self.controller)
+            except SpruceError:
+                mesh = {}
+            try:
                 baseline = await self.api.current_baseline(self.controller)
             except SpruceError:
                 baseline = {}
@@ -207,6 +212,7 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
             name=settings.get("controller_name") or "Spruce",
             model=settings.get("model_number"), firmware=settings.get("firmware"),
             serial=settings.get("serial_number"), timezone=settings.get("timezone"), network=network,
+            mesh=mesh,
         )
         for key, z in (settings.get("zone") or {}).items():
             data.zones[int(key)] = Zone(
@@ -399,6 +405,7 @@ class SpruceHistoryCoordinator(DataUpdateCoordinator[HistoryData]):
             "no_flow_at_baseline": (bool(no_flow), {"zones": ", ".join(name(z) for z in no_flow)}),
             "stale_baseline": (stale, {"date": max(stamps).date().isoformat() if stamps else ""}),
             "repeaters_silent": (bool(silent), {"outlets": ", ".join(silent)}),
+            "mesh_down": (data.mesh.get("status") not in (None, "UP"), {"status": str(data.mesh.get("status"))}),
         }
         # 1.3.1: no "calibration out of range" check: a custom meter's offset outside the app's 0-2 can be right
         # (Spruce support sets it for meters whose pulse formula needs it, e.g. f = 6Q - 8 -> offset 8)
