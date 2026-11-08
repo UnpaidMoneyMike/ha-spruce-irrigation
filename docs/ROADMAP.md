@@ -156,6 +156,7 @@ flow worked out from the installed heads is a reference a leak can't move.
 | 1.4 ✅ | Basic / manual schedule minutes per zone and weekday (`run_list`): `set_schedule_minutes`, `zone_minutes` attribute |
 | 1.4.1 ✅ | Changes return as soon as Spruce has saved them (and the controller has its new run list); the full re-read runs in the background |
 | 1.5 ✅ | Zigbee mesh health: `mesh_var` (status, channel, PAN, power) as a diagnostic sensor, a "Zigbee devices heard" sensor listing every sensor and repeater by link strength, a Repairs notice when the mesh is down, and a Zigbee mesh section on the Health view. Which device relays for which is not available from Spruce (see the app reference), so it is a ranking and not a routing tree |
+| 1.5.1 ✅ | Dashboard fix: the 1.5.0 "Zigbee mesh" sensor (`<controller>_mesh_status`) was mistaken for a second controller, so every dashboard tab appeared twice. A controller is now only an entity ending `<id>_status` with no further underscore |
 
 Each release: tests against the fake account for every new write (request body as in §5), then a live check
 against a real controller with the change reverted, as done for the write tests.

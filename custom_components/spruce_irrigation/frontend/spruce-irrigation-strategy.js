@@ -28,7 +28,8 @@ async function collect(hass) {
   for (const [entityId, entry] of Object.entries(entries)) {
     if (entry && !entry.disabled_by && !entry.hidden_by) byUnique[entry.unique_id] = entityId;
   }
-  const controllers = Object.keys(byUnique).filter((u) => u.endsWith("_status")).map((u) => u.slice(0, -7));
+  // A controller's own status sensor is "<controller id>_status"; ids have no underscore (so "<id>_mesh_status" is not one)
+  const controllers = Object.keys(byUnique).filter((u) => /^[^_]+_status$/.test(u)).map((u) => u.slice(0, -7));
 
   return controllers.map((ctrl) => {
     const c = { id: ctrl, entities: {}, zones: {}, schedules: {}, sensors: {}, outlets: {} };
